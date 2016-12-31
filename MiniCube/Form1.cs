@@ -18,6 +18,7 @@
 //Computer Software - Restricted Rights) and DFAR 252.227-7013(c)
 //(1)(ii)(Rights in Technical Data and Computer Software), as
 //applicable.
+//testestest
 
 
 //using System.Collections.Generic;
@@ -731,6 +732,7 @@ namespace MiniCube
         //and also send a ping over serial.
         private void Ping(object sender, EventArgs e)
         {
+            
             try
             {
                 _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
