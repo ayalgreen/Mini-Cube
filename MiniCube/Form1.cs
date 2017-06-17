@@ -445,7 +445,7 @@ namespace MiniCube
             double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
             double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
 
-            //avoid exceptions if possible
+            //avoid exceptions if possible before actually updating the frame
             if (inventorRunning)
             {
                 try
@@ -482,7 +482,8 @@ namespace MiniCube
             }
         }
 
-        ////TODO: remove this func
+        //old inventor frame updater
+        /*
         private void InvUpdate(Quaternion tempQuat)
         {
             Vector3D a = tempQuat.Axis;
@@ -527,7 +528,7 @@ namespace MiniCube
                 }
             }
         }
-
+        */
   
         //equation due to https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation, specifically:
         //https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
