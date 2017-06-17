@@ -18,7 +18,6 @@
 //Computer Software - Restricted Rights) and DFAR 252.227-7013(c)
 //(1)(ii)(Rights in Technical Data and Computer Software), as
 //applicable.
-//testestest
 
 
 //using System.Collections.Generic;
@@ -89,23 +88,15 @@ namespace MiniCube
 
         //static vars
         Quaternion quat = new Quaternion(1, 0, 0, 0);
-        Quaternion quat2 = new Quaternion();
         Quaternion oldQuat = new Quaternion(1, 0, 0, 0);
         Quaternion lastLockedQuat = new Quaternion(1, 0, 0, 0);
         Quaternion invertedQuat = new Quaternion(-1, 0, 0, 0); //Vect= (-1, 0, 0),  Angle= 180
-        Quaternion correctionQuat = new Quaternion(-1, 0, 0, 0); //Vect= (-1, 0, 0),  Angle= 180
         double[] q = new Double[4];
         double[] gravity = new Double[3];
-        double[] gravityRelative = new Double[3];
-        double[] gravityCorrected = new Double[3];
         double[] euler = new Double[3];
         double[] ypr = new Double[3];
-        double[] yprRelative = new Double[3];
-        double[] yprCorrected = new Double[3];
         bool formClose = false;
         bool mpuStable = true;
-        //TODO: for debugging
-        bool printData = false;
         //old code: bool mpuCalibrating = false;
         //old code: bool makeCorrection = false;
         bool foundCube = false;
@@ -407,7 +398,6 @@ namespace MiniCube
             // set our quaternion to new data
             // adjusted to Inventor Coordinate System
             oldQuat = quat;
-            //quat = new Quaternion(q[1], q[2], q[3], q[0]);
             quat = new Quaternion(q[0], -q[2], q[3], q[1]);
             //quat = new Quaternion(q[0], q[1], q[2], q[3]);
 
@@ -442,175 +432,17 @@ namespace MiniCube
             {
                 return;
             }
-            //TODO: make this work and clean up
             lastLockedQuat = quat;
-            Quaternion relativeQuat = Quaternion.Multiply(invertedQuat, quat);
-
-            Vector3D relativeAxis = relativeQuat.Axis;
-            xR.Text = relativeAxis.Z.ToString();
-            yR.Text = relativeAxis.Y.ToString();
-            zR.Text = relativeAxis.X.ToString();
-            Vector3D correctionAxis = invertedQuat.Axis;
-            xCC.Text = correctionAxis.Z.ToString();
-            yCC.Text = correctionAxis.Y.ToString();
-            zCC.Text = correctionAxis.X.ToString();
-            double correctionAngle = invertedQuat.Angle * Math.PI / 180;
-            double[] correctedAxisAsArray = RotateQuaternion(relativeAxis.X, relativeAxis.Y, relativeAxis.Z, correctionAxis, correctionAngle);
-            Vector3D correctedAxis = new Vector3D(correctedAxisAsArray[0], correctedAxisAsArray[1], correctedAxisAsArray[2]);
-            xC.Text = correctedAxis.Z.ToString();
-            yC.Text = correctedAxis.Y.ToString();
-            zC.Text = correctedAxis.X.ToString();
-            Quaternion correctedQuat = new Quaternion(correctedAxis, relativeQuat.Angle);
-            //Quaternion correctedQuat = relativeQuat; //originally
-
-            //for debugging purposes
-            // calculate gravity vector
-            /*gravity[0] = 2 * (q[1] * q[3] - q[0] * q[2]);
-            gravity[1] = 2 * (q[0] * q[1] + q[2] * q[3]);
-            gravity[2] = q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3];
-
-
-            // yaw: (about Z axis)
-            ypr[0] = Math.Atan2(2 * q[1] * q[2] - 2 * q[0] * q[3], 2 * q[0] * q[0] + 2 * q[1] * q[1] - 1);
-            // pitch: (nose up/down, about Y axis)
-            ypr[1] = Math.Atan(gravity[0] / Math.Sqrt(gravity[1] * gravity[1] + gravity[2] * gravity[2]));
-            // roll: (tilt left/right, about X axis)
-            ypr[2] = Math.Atan(gravity[1] / Math.Sqrt(gravity[0] * gravity[0] + gravity[2] * gravity[2]));*/
-
-            //                      x->W  y->-Y  z->Z  w->X
-            //quat = new Quaternion(q[0], -q[2], q[3], q[1]);
-            //quat = new Quaternion(q[1], q[2], q[3], q[0]);
-            //quat = new Quaternion(X, Y, Z, W);
-            //q = [w, x, y, z]
-
-            gravity[0] = 2 * (quat.X * quat.Z - quat.W * (-quat.Y));
-            gravity[1] = 2 * (quat.W * quat.X + (-quat.Y) * quat.Z);
-            gravity[2] = quat.W * quat.W - quat.X * quat.X - (-quat.Y) * (-quat.Y) + quat.Z * quat.Z;
-
-            // yaw: (about Z axis)
-            ypr[0] = Math.Atan2(2 * quat.X * (-quat.Y) - 2 * quat.W * quat.Z, 2 * quat.W * quat.W + 2 * quat.X * quat.X - 1);
-            // roll: (tilt left/right, about X axis)
-            ypr[1] = Math.Atan(gravity[0] / Math.Sqrt(gravity[1] * gravity[1] + gravity[2] * gravity[2]));
-            // pitch: (nose up/down, about Y axis)
-            ypr[2] = Math.Atan(gravity[1] / Math.Sqrt(gravity[0] * gravity[0] + gravity[2] * gravity[2]));
-
-            
-            // calculate relative gravity vector
-            gravityRelative[0] = 2 * (relativeQuat.X * relativeQuat.Z - relativeQuat.W * (-relativeQuat.Y));
-            gravityRelative[1] = 2 * (relativeQuat.W * relativeQuat.X + (-relativeQuat.Y) * relativeQuat.Z);
-            gravityRelative[2] = relativeQuat.W * relativeQuat.W - relativeQuat.X * relativeQuat.X - (-relativeQuat.Y) * (-relativeQuat.Y) + relativeQuat.Z * relativeQuat.Z;
-
-            // yaw: (about Z axis)
-            yprRelative[0] = Math.Atan2(2 * relativeQuat.X * (-relativeQuat.Y) - 2 * relativeQuat.W * relativeQuat.Z, 2 * relativeQuat.W * relativeQuat.W + 2 * relativeQuat.X * relativeQuat.X - 1);
-            // roll: (tilt left/right, about X axis)
-            yprRelative[1] = Math.Atan(gravityRelative[0] / Math.Sqrt(gravityRelative[1] * gravityRelative[1] + gravityRelative[2] * gravityRelative[2]));
-            // pitch: (nose up/down, about Y axis)
-            yprRelative[2] = Math.Atan(gravityRelative[1] / Math.Sqrt(gravityRelative[0] * gravityRelative[0] + gravityRelative[2] * gravityRelative[2]));
-
-            // calculate corrected gravity vector
-            gravityCorrected[0] = 2 * (correctedQuat.X * correctedQuat.Z - correctedQuat.W * (-correctedQuat.Y));
-            gravityCorrected[1] = 2 * (correctedQuat.W * correctedQuat.X + (-correctedQuat.Y) * correctedQuat.Z);
-            gravityCorrected[2] = correctedQuat.W * correctedQuat.W - correctedQuat.X * correctedQuat.X - (-correctedQuat.Y) * (-correctedQuat.Y) + correctedQuat.Z * correctedQuat.Z;
-
-            // yaw: (about Z axis)
-            yprCorrected[0] = Math.Atan2(2 * relativeQuat.X * (-relativeQuat.Y) - 2 * relativeQuat.W * relativeQuat.Z, 2 * relativeQuat.W * relativeQuat.W + 2 * relativeQuat.X * relativeQuat.X - 1);
-            // roll: (tilt left/right, about X axis)
-            yprCorrected[1] = Math.Atan(gravityCorrected[0] / Math.Sqrt(gravityCorrected[1] * gravityCorrected[1] + gravityCorrected[2] * gravityCorrected[2]));
-            // pitch: (nose up/down, about Y axis)
-            yprCorrected[2] = Math.Atan(gravityCorrected[1] / Math.Sqrt(gravityCorrected[0] * gravityCorrected[0] + gravityCorrected[2] * gravityCorrected[2]));
-
-            if (printData)
-            {
-                //Console.WriteLine("relativeAxis: " + relativeAxis.ToString() + "; relativeAngle: " + theta.ToString());
-                printData = false;
-            }
-
-            ypr0.Text = (ypr[0] * 180 /Math.PI).ToString();
-            ypr1.Text = (ypr[2] * 180 / Math.PI).ToString();
-            ypr2.Text = (ypr[1] * 180 / Math.PI).ToString();
-
-            yprR0.Text = (yprRelative[0] * 180 / Math.PI).ToString();
-            yprR1.Text = (yprRelative[2] * 180 / Math.PI).ToString();
-            yprR2.Text = (yprRelative[1] * 180 / Math.PI).ToString();
-
-            yprC0.Text = (yprCorrected[0] * 180 / Math.PI).ToString();
-            yprC1.Text = (yprCorrected[2] * 180 / Math.PI).ToString();
-            yprC2.Text = (yprCorrected[1] * 180 / Math.PI).ToString();
-
-            correctedQuat.Invert();
-            Vector3D a = correctedQuat.Axis;//originally
-
-            double theta = correctedQuat.Angle;
+            Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
+            //tempQuat = Quaternion.Multiply(tempQuat, correctionQuat);
+            Vector3D a = tempQuat.Axis;
+            double theta = tempQuat.Angle;
             //double theta = quat.Angle;
             theta *= Math.PI / 180;
+            //move object instead of the camera
+            theta = -theta;
 
-            //avoid exceptions if possible
-            if (inventorRunning)
-            {
-                try
-                {
-                    //avoid exceptions if possible
-                    if (_invApp.ActiveView != null)
-                    {
-                        try
-                        {
-                            //Stopwatch stopWatch = new Stopwatch();
-                            //stopWatch.Start();                            
-                            Inventor.Camera cam = _invApp.ActiveView.Camera;
-                            TransientGeometry tg = _invApp.TransientGeometry;
-
-                            double[] camTarget = new double[3];
-                            camTarget[0] = cam.Target.X;
-                            camTarget[1] = cam.Target.Y;
-                            camTarget[2] = cam.Target.Z;
-                            double[] camPos = new double[3];
-                            camPos[0] = cam.Eye.X - camTarget[0];
-                            camPos[1] = cam.Eye.Y - camTarget[1];
-                            camPos[2] = cam.Eye.Z - camTarget[2];
-                            camDist = Math.Sqrt(camPos[0]*camPos[0] + camPos[1]*camPos[1] + camPos[2]*camPos[2]);
-                            //TODO: find the underlying quaternion to get here!
-                            camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                            //TODO: rotate this by a quaternion relative to last one!!
-                            camTarget = RotateQuaternion(camTarget[0], camTarget[1], camTarget[2], a, theta);
-                            camPos[0] += camTarget[0];
-                            camPos[1] += camTarget[1];
-                            camPos[2] += camTarget[2];
-                            double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
-
-                            //cam.Eye = tg.CreatePoint(camPos[0], -camPos[2], camPos[1]);
-                            cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-                            //cam.Target = tg.CreatePoint(camTarget[0], camTarget[1], camTarget[2]);
-                            cam.Target = tg.CreatePoint();
-                            //cam.UpVector = tg.CreateUnitVector(camUp[0], -camUp[2], camUp[1]);
-                            cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                            cam.ApplyWithoutTransition();
-                            //stopWatch.Stop();
-                            //Console.WriteLine(stopWatch.ElapsedMilliseconds);
-                        }
-                        //no active view
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
-                        }
-                    }
-                }
-                //no _invApp
-                catch (Exception ex)
-                {
-                    inventorRunning = false;
-                    MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
-                }
-            }
-
-            //move object instead of the camera - already done earlier!
-            //theta = -theta;
-            /*if (printData)
-            {
-                Console.WriteLine("relativeAxis: " + relativeAxis.ToString() + "; relativeAngle: " + theta.ToString());
-                printData = false;
-            }*/
-
-            /*double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+            double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
             double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
 
             //avoid exceptions if possible
@@ -627,10 +459,8 @@ namespace MiniCube
                             //stopWatch.Start();                            
                             Inventor.Camera cam = _invApp.ActiveView.Camera;
                             TransientGeometry tg = _invApp.TransientGeometry;                           
-                            //cam.Eye = tg.CreatePoint(camPos[0], -camPos[2], camPos[1]);
                             cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
                             cam.Target = tg.CreatePoint();
-                            //cam.UpVector = tg.CreateUnitVector(camUp[0], -camUp[2], camUp[1]);
                             cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
                             cam.ApplyWithoutTransition();
                             //stopWatch.Stop();
@@ -649,7 +479,7 @@ namespace MiniCube
                     inventorRunning = false;
                     MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
                 }
-            }*/
+            }
         }
 
         ////TODO: remove this func
@@ -698,7 +528,7 @@ namespace MiniCube
             }
         }
 
-        
+  
         //equation due to https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation, specifically:
         //https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
         private double[] RotateQuaternion(double x, double y, double z, Vector3D a, double theta)
@@ -732,7 +562,6 @@ namespace MiniCube
         //and also send a ping over serial.
         private void Ping(object sender, EventArgs e)
         {
-            
             try
             {
                 _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
@@ -810,17 +639,11 @@ namespace MiniCube
             //Quaternion tempQuat = new Quaternion(quat.Axis, -quat.Angle); 
             //correctionQuat = Quaternion.Multiply(tempQuat, adjustmentQuat);
             ///correctionQuat = new Quaternion(quat.Axis, -quat.Angle);
-            ////TODO: make this work, and clean
-
-            Console.WriteLine("Axis: " + quat.Axis.ToString() + "; Angle: " + quat.Angle.ToString());
-            correctionQuat = new Quaternion(quat.Axis, quat.Angle);
-            Console.WriteLine("Quat: " + correctionQuat.ToString());
+            ////TODO: make this work
             invertedQuat = new Quaternion(quat.Axis, quat.Angle);
             invertedQuat.Invert();
-            Console.WriteLine("InvertedQuat: " + invertedQuat.ToString());
-            printData = true; 
             mpuStable = true;
-            //new EventHandler(InventorFrame).BeginInvoke(null, null, null, null);            
+            new EventHandler(InventorFrame).BeginInvoke(null, null, null, null);            
         }
 
 
@@ -840,12 +663,6 @@ namespace MiniCube
                 OpenPort();
             }));
         }
-
-        private void button1_Click(object sender, EventArgs e)
-        {
-            printData = true;
-        }
-
     }
 }
 
