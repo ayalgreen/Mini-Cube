@@ -778,8 +778,15 @@ namespace MiniCube
         {
             this.BeginInvoke(new EventHandler(delegate
             {
-                serialPort1.Close();
-                Console.WriteLine("port closed");
+                try
+                {
+                    serialPort1.Close();
+                    Console.WriteLine("port closed");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Oh no! can't close port!\n" + ex.ToString());
+                }
                 synced = false;
                 serialCount = 0;
                 OpenPort();
