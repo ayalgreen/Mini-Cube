@@ -18,6 +18,7 @@
 //Computer Software - Restricted Rights) and DFAR 252.227-7013(c)
 //(1)(ii)(Rights in Technical Data and Computer Software), as
 //applicable.
+//testestest
 
 
 //using System.Collections.Generic;
@@ -46,7 +47,6 @@ namespace MiniCube
     public partial class CubeForm : Form
     {
         //Constants
-        //TODO: add try to any port operation?
         int BAUD_RATE = 38400;
         string serialComPort = "COM9";
         int FPS = 60;
@@ -59,7 +59,6 @@ namespace MiniCube
 
         //delegates
         public delegate void SimpleDelegate();
-        public delegate void TimerDelegate(object myObject);
         public delegate void DataProcessDelegate(byte[] buffer);
         public delegate void CameraLockDelegate(Vector3D a, double theta);
 
@@ -67,14 +66,8 @@ namespace MiniCube
         Inventor.Application _invApp;
         bool _startedByForm = false;
         bool inventorRunning = false;
-        int inventorFrameInterval;
         //TODO change to proper timer
-        ////System.Windows.Forms.Timer inventorFrameTimer;
-        //proper timer + it's mutex
-        System.Threading.Timer inventorFrameTimerT;
-        bool inventorFrameTimerTEnabled = false;
-        static Mutex inventorFrameMutex = new Mutex();
-        
+        System.Windows.Forms.Timer inventorFrameTimer;
         //TODO cam dist adjust
         double camDist = 10;
 
@@ -88,26 +81,31 @@ namespace MiniCube
         int serialCount = 0;                 // current packet byte position
         bool synced = false;
         bool noSync = true;
-        int pingTimerInterval;
         //TOOO change to proper timer
-        ////System.Windows.Forms.Timer pingTimer;  // = new System.Windows.Forms.Timer();
-        //proper timer
-        System.Threading.Timer pingTimerT;
+        System.Windows.Forms.Timer pingTimer = new System.Windows.Forms.Timer();
         char[] pingBuff = { 'r' };
         char[] calBuff = { 'c', 'f', 'c', 'f', 'c', 'f', 'c', 'f' };
         char lastPacketID = (char)0;
 
         //static vars
         Quaternion quat = new Quaternion(1, 0, 0, 0);
+        Quaternion quat2 = new Quaternion();
         Quaternion oldQuat = new Quaternion(1, 0, 0, 0);
         Quaternion lastLockedQuat = new Quaternion(1, 0, 0, 0);
         Quaternion invertedQuat = new Quaternion(-1, 0, 0, 0); //Vect= (-1, 0, 0),  Angle= 180
+        Quaternion correctionQuat = new Quaternion(-1, 0, 0, 0); //Vect= (-1, 0, 0),  Angle= 180
         double[] q = new Double[4];
         double[] gravity = new Double[3];
+        double[] gravityRelative = new Double[3];
+        double[] gravityCorrected = new Double[3];
         double[] euler = new Double[3];
         double[] ypr = new Double[3];
+        double[] yprRelative = new Double[3];
+        double[] yprCorrected = new Double[3];
         bool formClose = false;
         bool mpuStable = true;
+        //TODO: for debugging
+        bool printData = false;
         //old code: bool mpuCalibrating = false;
         //old code: bool makeCorrection = false;
         bool foundCube = false;
@@ -138,25 +136,19 @@ namespace MiniCube
 
         private void SetTimers()
         {
-            inventorFrameInterval = (int)(1000 / FPS);
-            ////inventorFrameTimer = new System.Windows.Forms.Timer();
-            ////inventorFrameTimer.Tick += new EventHandler(InventorFrame);
-            ////inventorFrameTimer.Interval = inventorFrameInterval;
-            //threading timer version
-            inventorFrameTimerT = new System.Threading.Timer(InventorFrameT, null, Timeout.Infinite, Timeout.Infinite);
+            inventorFrameTimer = new System.Windows.Forms.Timer();
+            inventorFrameTimer.Tick += new EventHandler(InventorFrame);
+            inventorFrameTimer.Interval = (int)(1000 / FPS);
 
             /*old code:
             mpuStabilizeTimer = new System.Windows.Forms.Timer();
             mpuStabilizeTimer.Tick += new EventHandler(Stable);
             mpuStabilizeTimer.Interval = 3000;
             */
-            pingTimerInterval = 2000;
-            /*old ping timer
-             * pingTimer = new System.Windows.Forms.Timer();
-             * pingTimer.Tick += new EventHandler(Ping);
-             * pingTimer.Interval = pingTimerInterval;*/
 
-            pingTimerT = new System.Threading.Timer(PingT, null, Timeout.Infinite, Timeout.Infinite);
+            pingTimer = new System.Windows.Forms.Timer();
+            pingTimer.Tick += new EventHandler(Ping);
+            pingTimer.Interval = 2000;
         }
 
         private void loadConfig()
@@ -212,8 +204,6 @@ namespace MiniCube
         private void OpenPort()
         {
             serialPort1 = new SerialPort();
-            serialPort1.ReadTimeout = 200;
-            serialPort1.WriteTimeout = 200;
             serialPort1.PortName = serialComPort;
             serialPort1.BaudRate = BAUD_RATE;
             serialPort1.ParityReplace = (byte)0;
@@ -223,25 +213,14 @@ namespace MiniCube
             {
                 if (port == serialPort1.PortName)
                 {
-                    try
-                    {
-                        serialPort1.Open();
-                        ////pingTimer.Start();
-                        pingTimerT.Change(pingTimerInterval, pingTimerInterval);
-                    }
-                    //if can't open port
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show("Oh no! bad port!\n" + ex.ToString());
-                    }
+                    serialPort1.Open();
+                    pingTimer.Start();
                     return;
                 }
             }
            
         }
 
-        //TODO: automatic Bluetooth stuff
-        /* Bluetooth
         private void OpenBluetooth()
         {
             Thread bluetoothScanner = new Thread(new ThreadStart(BluetoothScan));
@@ -330,7 +309,7 @@ namespace MiniCube
                 //return;
             }
         }
-        */
+
 
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
@@ -428,6 +407,7 @@ namespace MiniCube
             // set our quaternion to new data
             // adjusted to Inventor Coordinate System
             oldQuat = quat;
+            //quat = new Quaternion(q[1], q[2], q[3], q[0]);
             quat = new Quaternion(q[0], -q[2], q[3], q[1]);
             //quat = new Quaternion(q[0], q[1], q[2], q[3]);
 
@@ -436,11 +416,7 @@ namespace MiniCube
             
             if (diffTheta > MAX_THETA_DIFF_LOCK || diffVector.Length > MAX_AXIS_DIFF_LOCK)
             {
-                ////if (!inventorFrameTimer.Enabled) inventorFrameTimer.Start();
-                if (!inventorFrameTimerTEnabled)
-                {
-                    if (inventorFrameTimerT.Change(inventorFrameInterval, inventorFrameInterval)) inventorFrameTimerTEnabled = true;
-                }
+                if (!inventorFrameTimer.Enabled) inventorFrameTimer.Start();
             }
             //TODO: decide whats better.
             /*else
@@ -449,30 +425,126 @@ namespace MiniCube
             }*/
         }
         
-        /* old code
         //method for updating the inventor cam view
         //TODO drop if busy mutex 
         private void InventorFrame(object myObject, EventArgs myEventArgs)//Vector3D a, Double theta)
         {
-            //no update over "noise", no update during calibration
-            if (!MovementFilter() || !mpuStable)
+            double diffTheta = lastLockedQuat.Angle - quat.Angle;
+            Vector3D diffVector = Vector3D.Subtract(lastLockedQuat.Axis, quat.Axis);
+            //TODO: decide whats better.
+            if (!(diffTheta > MAX_THETA_DIFF_UNLOCK || diffVector.Length > MAX_AXIS_DIFF_UNLOCK))
+            {
+                ////TODO: re-enable.
+                //inventorFrameTimer.Stop();
+                return;
+            }
+            if (!mpuStable)
             {
                 return;
             }
+            //TODO: make this work and clean up
             lastLockedQuat = quat;
-            Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
-            //tempQuat = Quaternion.Multiply(tempQuat, correctionQuat);
-            Vector3D a = tempQuat.Axis;
-            double theta = tempQuat.Angle;
+            Quaternion relativeQuat = Quaternion.Multiply(invertedQuat, quat);
+
+            Vector3D relativeAxis = relativeQuat.Axis;
+            xR.Text = relativeAxis.Z.ToString();
+            yR.Text = relativeAxis.Y.ToString();
+            zR.Text = relativeAxis.X.ToString();
+            Vector3D correctionAxis = invertedQuat.Axis;
+            xCC.Text = correctionAxis.Z.ToString();
+            yCC.Text = correctionAxis.Y.ToString();
+            zCC.Text = correctionAxis.X.ToString();
+            double correctionAngle = invertedQuat.Angle * Math.PI / 180;
+            double[] correctedAxisAsArray = RotateQuaternion(relativeAxis.X, relativeAxis.Y, relativeAxis.Z, correctionAxis, correctionAngle);
+            Vector3D correctedAxis = new Vector3D(correctedAxisAsArray[0], correctedAxisAsArray[1], correctedAxisAsArray[2]);
+            xC.Text = correctedAxis.Z.ToString();
+            yC.Text = correctedAxis.Y.ToString();
+            zC.Text = correctedAxis.X.ToString();
+            Quaternion correctedQuat = new Quaternion(correctedAxis, relativeQuat.Angle);
+            //Quaternion correctedQuat = relativeQuat; //originally
+
+            //for debugging purposes
+            // calculate gravity vector
+            /*gravity[0] = 2 * (q[1] * q[3] - q[0] * q[2]);
+            gravity[1] = 2 * (q[0] * q[1] + q[2] * q[3]);
+            gravity[2] = q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3];
+
+
+            // yaw: (about Z axis)
+            ypr[0] = Math.Atan2(2 * q[1] * q[2] - 2 * q[0] * q[3], 2 * q[0] * q[0] + 2 * q[1] * q[1] - 1);
+            // pitch: (nose up/down, about Y axis)
+            ypr[1] = Math.Atan(gravity[0] / Math.Sqrt(gravity[1] * gravity[1] + gravity[2] * gravity[2]));
+            // roll: (tilt left/right, about X axis)
+            ypr[2] = Math.Atan(gravity[1] / Math.Sqrt(gravity[0] * gravity[0] + gravity[2] * gravity[2]));*/
+
+            //                      x->W  y->-Y  z->Z  w->X
+            //quat = new Quaternion(q[0], -q[2], q[3], q[1]);
+            //quat = new Quaternion(q[1], q[2], q[3], q[0]);
+            //quat = new Quaternion(X, Y, Z, W);
+            //q = [w, x, y, z]
+
+            gravity[0] = 2 * (quat.X * quat.Z - quat.W * (-quat.Y));
+            gravity[1] = 2 * (quat.W * quat.X + (-quat.Y) * quat.Z);
+            gravity[2] = quat.W * quat.W - quat.X * quat.X - (-quat.Y) * (-quat.Y) + quat.Z * quat.Z;
+
+            // yaw: (about Z axis)
+            ypr[0] = Math.Atan2(2 * quat.X * (-quat.Y) - 2 * quat.W * quat.Z, 2 * quat.W * quat.W + 2 * quat.X * quat.X - 1);
+            // roll: (tilt left/right, about X axis)
+            ypr[1] = Math.Atan(gravity[0] / Math.Sqrt(gravity[1] * gravity[1] + gravity[2] * gravity[2]));
+            // pitch: (nose up/down, about Y axis)
+            ypr[2] = Math.Atan(gravity[1] / Math.Sqrt(gravity[0] * gravity[0] + gravity[2] * gravity[2]));
+
+            
+            // calculate relative gravity vector
+            gravityRelative[0] = 2 * (relativeQuat.X * relativeQuat.Z - relativeQuat.W * (-relativeQuat.Y));
+            gravityRelative[1] = 2 * (relativeQuat.W * relativeQuat.X + (-relativeQuat.Y) * relativeQuat.Z);
+            gravityRelative[2] = relativeQuat.W * relativeQuat.W - relativeQuat.X * relativeQuat.X - (-relativeQuat.Y) * (-relativeQuat.Y) + relativeQuat.Z * relativeQuat.Z;
+
+            // yaw: (about Z axis)
+            yprRelative[0] = Math.Atan2(2 * relativeQuat.X * (-relativeQuat.Y) - 2 * relativeQuat.W * relativeQuat.Z, 2 * relativeQuat.W * relativeQuat.W + 2 * relativeQuat.X * relativeQuat.X - 1);
+            // roll: (tilt left/right, about X axis)
+            yprRelative[1] = Math.Atan(gravityRelative[0] / Math.Sqrt(gravityRelative[1] * gravityRelative[1] + gravityRelative[2] * gravityRelative[2]));
+            // pitch: (nose up/down, about Y axis)
+            yprRelative[2] = Math.Atan(gravityRelative[1] / Math.Sqrt(gravityRelative[0] * gravityRelative[0] + gravityRelative[2] * gravityRelative[2]));
+
+            // calculate corrected gravity vector
+            gravityCorrected[0] = 2 * (correctedQuat.X * correctedQuat.Z - correctedQuat.W * (-correctedQuat.Y));
+            gravityCorrected[1] = 2 * (correctedQuat.W * correctedQuat.X + (-correctedQuat.Y) * correctedQuat.Z);
+            gravityCorrected[2] = correctedQuat.W * correctedQuat.W - correctedQuat.X * correctedQuat.X - (-correctedQuat.Y) * (-correctedQuat.Y) + correctedQuat.Z * correctedQuat.Z;
+
+            // yaw: (about Z axis)
+            yprCorrected[0] = Math.Atan2(2 * relativeQuat.X * (-relativeQuat.Y) - 2 * relativeQuat.W * relativeQuat.Z, 2 * relativeQuat.W * relativeQuat.W + 2 * relativeQuat.X * relativeQuat.X - 1);
+            // roll: (tilt left/right, about X axis)
+            yprCorrected[1] = Math.Atan(gravityCorrected[0] / Math.Sqrt(gravityCorrected[1] * gravityCorrected[1] + gravityCorrected[2] * gravityCorrected[2]));
+            // pitch: (nose up/down, about Y axis)
+            yprCorrected[2] = Math.Atan(gravityCorrected[1] / Math.Sqrt(gravityCorrected[0] * gravityCorrected[0] + gravityCorrected[2] * gravityCorrected[2]));
+
+            if (printData)
+            {
+                //Console.WriteLine("relativeAxis: " + relativeAxis.ToString() + "; relativeAngle: " + theta.ToString());
+                printData = false;
+            }
+
+            ypr0.Text = (ypr[0] * 180 /Math.PI).ToString();
+            ypr1.Text = (ypr[2] * 180 / Math.PI).ToString();
+            ypr2.Text = (ypr[1] * 180 / Math.PI).ToString();
+
+            yprR0.Text = (yprRelative[0] * 180 / Math.PI).ToString();
+            yprR1.Text = (yprRelative[2] * 180 / Math.PI).ToString();
+            yprR2.Text = (yprRelative[1] * 180 / Math.PI).ToString();
+
+            yprC0.Text = (yprCorrected[0] * 180 / Math.PI).ToString();
+            yprC1.Text = (yprCorrected[2] * 180 / Math.PI).ToString();
+            yprC2.Text = (yprCorrected[1] * 180 / Math.PI).ToString();
+
+            correctedQuat.Invert();
+            Vector3D a = correctedQuat.Axis;//originally
+
+            double theta = correctedQuat.Angle;
             //double theta = quat.Angle;
             theta *= Math.PI / 180;
-            //move object instead of the camera
-            theta = -theta;
 
-            double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
-            double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
-
-            //avoid exceptions if possible before actually updating the frame
+            //avoid exceptions if possible
             if (inventorRunning)
             {
                 try
@@ -485,9 +557,31 @@ namespace MiniCube
                             //Stopwatch stopWatch = new Stopwatch();
                             //stopWatch.Start();                            
                             Inventor.Camera cam = _invApp.ActiveView.Camera;
-                            TransientGeometry tg = _invApp.TransientGeometry;                           
+                            TransientGeometry tg = _invApp.TransientGeometry;
+
+                            double[] camTarget = new double[3];
+                            camTarget[0] = cam.Target.X;
+                            camTarget[1] = cam.Target.Y;
+                            camTarget[2] = cam.Target.Z;
+                            double[] camPos = new double[3];
+                            camPos[0] = cam.Eye.X - camTarget[0];
+                            camPos[1] = cam.Eye.Y - camTarget[1];
+                            camPos[2] = cam.Eye.Z - camTarget[2];
+                            camDist = Math.Sqrt(camPos[0]*camPos[0] + camPos[1]*camPos[1] + camPos[2]*camPos[2]);
+                            //TODO: find the underlying quaternion to get here!
+                            camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                            //TODO: rotate this by a quaternion relative to last one!!
+                            camTarget = RotateQuaternion(camTarget[0], camTarget[1], camTarget[2], a, theta);
+                            camPos[0] += camTarget[0];
+                            camPos[1] += camTarget[1];
+                            camPos[2] += camTarget[2];
+                            double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+
+                            //cam.Eye = tg.CreatePoint(camPos[0], -camPos[2], camPos[1]);
                             cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                            //cam.Target = tg.CreatePoint(camTarget[0], camTarget[1], camTarget[2]);
                             cam.Target = tg.CreatePoint();
+                            //cam.UpVector = tg.CreateUnitVector(camUp[0], -camUp[2], camUp[1]);
                             cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
                             cam.ApplyWithoutTransition();
                             //stopWatch.Stop();
@@ -507,98 +601,58 @@ namespace MiniCube
                     MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
                 }
             }
-        }
-        */
 
-
-        //method for updating the inventor cam view
-        //Threaded timer version!
-        //TODO drop if busy mutex 
-        private void InventorFrameT(object myObject)//Vector3D a, Double theta)
-        {
-            if (inventorFrameMutex.WaitOne(0))
+            //move object instead of the camera - already done earlier!
+            //theta = -theta;
+            /*if (printData)
             {
-                //no update over "noise", no update during calibration
-                if (!MovementFilter() || !mpuStable)
+                Console.WriteLine("relativeAxis: " + relativeAxis.ToString() + "; relativeAngle: " + theta.ToString());
+                printData = false;
+            }*/
+
+            /*double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+            double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+
+            //avoid exceptions if possible
+            if (inventorRunning)
+            {
+                try
                 {
-                    inventorFrameMutex.ReleaseMutex();
-                    return;
-                }
-
-                lastLockedQuat = quat;
-                Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
-                //tempQuat = Quaternion.Multiply(tempQuat, correctionQuat);
-                Vector3D a = tempQuat.Axis;
-                double theta = tempQuat.Angle;
-                //double theta = quat.Angle;
-                theta *= Math.PI / 180;
-                //move object instead of the camera
-                theta = -theta;
-
-                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
-
-                //avoid exceptions if possible before actually updating the frame
-                if (inventorRunning)
-                {
-                    try
+                    //avoid exceptions if possible
+                    if (_invApp.ActiveView != null)
                     {
-                        //avoid exceptions if possible
-                        if (_invApp.ActiveView != null)
+                        try
                         {
-                            try
-                            {
-                                //Stopwatch stopWatch = new Stopwatch();
-                                //stopWatch.Start();                            
-                                Inventor.Camera cam = _invApp.ActiveView.Camera;
-                                TransientGeometry tg = _invApp.TransientGeometry;
-                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-                                cam.Target = tg.CreatePoint();
-                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                cam.ApplyWithoutTransition();
-                                //stopWatch.Stop();
-                                //Console.WriteLine(stopWatch.ElapsedMilliseconds);
-                            }
-                            //no active view
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
-                            }
+                            //Stopwatch stopWatch = new Stopwatch();
+                            //stopWatch.Start();                            
+                            Inventor.Camera cam = _invApp.ActiveView.Camera;
+                            TransientGeometry tg = _invApp.TransientGeometry;                           
+                            //cam.Eye = tg.CreatePoint(camPos[0], -camPos[2], camPos[1]);
+                            cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                            cam.Target = tg.CreatePoint();
+                            //cam.UpVector = tg.CreateUnitVector(camUp[0], -camUp[2], camUp[1]);
+                            cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                            cam.ApplyWithoutTransition();
+                            //stopWatch.Stop();
+                            //Console.WriteLine(stopWatch.ElapsedMilliseconds);
+                        }
+                        //no active view
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
                         }
                     }
-                    //no _invApp
-                    catch (Exception ex)
-                    {
-                        inventorRunning = false;
-                        MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
-                    }
                 }
-                inventorFrameMutex.ReleaseMutex();
-            }
-           
+                //no _invApp
+                catch (Exception ex)
+                {
+                    inventorRunning = false;
+                    MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
+                }
+            }*/
         }
 
-        //TODO: make a good filter.
-        //function that checks whether a an actual movement of the cube was made
-        private bool MovementFilter()
-        {
-            double diffTheta = lastLockedQuat.Angle - quat.Angle;
-            Vector3D diffVector = Vector3D.Subtract(lastLockedQuat.Axis, quat.Axis);
-            if (!(diffTheta > MAX_THETA_DIFF_UNLOCK || diffVector.Length > MAX_AXIS_DIFF_UNLOCK))
-            {
-                ////TODO: re-enable.
-                ////TODO: recalibrate to avoid drift?
-                //avoid jumping due to drifting
-                lastLockedQuat = quat;
-                //inventorFrameTimer.Stop();
-                return false;
-            }
-            return true;
-        }
-
-
-        /* old inventor frame updater
-         
+        ////TODO: remove this func
         private void InvUpdate(Quaternion tempQuat)
         {
             Vector3D a = tempQuat.Axis;
@@ -643,8 +697,8 @@ namespace MiniCube
                 }
             }
         }
-        */
 
+        
         //equation due to https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation, specifically:
         //https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
         private double[] RotateQuaternion(double x, double y, double z, Vector3D a, double theta)
@@ -672,14 +726,13 @@ namespace MiniCube
             BeginInvoke(new EventHandler(InventorFrame));
         }*/
 
-
-        /*old code 
         //a ping timer is started upon port opening.
         //a ping checks for activeness of inventor (shuts down otherwise)
         //and for serial port (shuts down itself and frame clock otherwise)
         //and also send a ping over serial.
         private void Ping(object sender, EventArgs e)
         {
+            
             try
             {
                 _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
@@ -694,78 +747,16 @@ namespace MiniCube
             }
             if (serialPort1.IsOpen)
             {
-                try
-                {
-                    serialPort1.Write(pingBuff, 0, 1);
-                }
-                catch (Exception ex)
-                {
-                    pingTimer.Stop();
-                    ////inventorFrameTimer.Stop();
-                    if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
-
-                    MessageBox.Show("Oh no! can't write to port!\n" + ex.ToString());
-
-                }
-                
+                serialPort1.Write(pingBuff, 0, 1);
             }
             else
             {
                 pingTimer.Stop();
-                ////inventorFrameTimer.Stop();
-                if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
+                inventorFrameTimer.Stop();
             }
 
 
         }
-        */
-
-        //a ping timer is started upon port opening.
-        //a ping checks for activeness of inventor (shuts down otherwise)
-        //and for serial port (shuts down itself and frame clock otherwise)
-        //and also send a ping over serial.
-        private void PingT(object myObject)
-        {
-            try
-            {
-                _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
-            }
-            catch (Exception ex)
-            {
-                inventorRunning = false;
-            }
-            if (!inventorRunning)
-            {
-                //TODO: fix error on inventor close
-                this.Close();
-            }
-            if (serialPort1.IsOpen)
-            {
-                try
-                {
-                    serialPort1.Write(pingBuff, 0, 1);
-                }
-                catch (Exception ex)
-                {
-                    pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
-                    ////inventorFrameTimer.Stop();
-                    if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
-
-                    MessageBox.Show("Oh no! can't write to port!\n" + ex.ToString());
-
-                }
-
-            }
-            else
-            {
-                pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
-                ////inventorFrameTimer.Stop();
-                if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
-            }
-
-
-        }
-
 
         //Hopefully, it's enough that the DataRecieved uses BeginInvoke.
         //TODO: make sure there really isn't any deadlock by using Invoke for closing
@@ -778,11 +769,8 @@ namespace MiniCube
         private void CloseSequence()
         {
             //TODO form close mutex
-            //TODO only if timers exist
-            ////pingTimer.Stop();
-            pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
-            ////inventorFrameTimer.Stop();
-            if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
+            pingTimer.Stop();
+            inventorFrameTimer.Stop();
             serialPort1.Close();
             Console.WriteLine("port closed");
             synced = false;
@@ -822,12 +810,17 @@ namespace MiniCube
             //Quaternion tempQuat = new Quaternion(quat.Axis, -quat.Angle); 
             //correctionQuat = Quaternion.Multiply(tempQuat, adjustmentQuat);
             ///correctionQuat = new Quaternion(quat.Axis, -quat.Angle);
-            ////TODO: make this work
+            ////TODO: make this work, and clean
+
+            Console.WriteLine("Axis: " + quat.Axis.ToString() + "; Angle: " + quat.Angle.ToString());
+            correctionQuat = new Quaternion(quat.Axis, quat.Angle);
+            Console.WriteLine("Quat: " + correctionQuat.ToString());
             invertedQuat = new Quaternion(quat.Axis, quat.Angle);
             invertedQuat.Invert();
+            Console.WriteLine("InvertedQuat: " + invertedQuat.ToString());
+            printData = true; 
             mpuStable = true;
-            //new EventHandler(InventorFrame).BeginInvoke(null, null, null, null);
-            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
+            //new EventHandler(InventorFrame).BeginInvoke(null, null, null, null);            
         }
 
 
@@ -840,20 +833,19 @@ namespace MiniCube
         {
             this.BeginInvoke(new EventHandler(delegate
             {
-                try
-                {
-                    serialPort1.Close();
-                    Console.WriteLine("port closed");
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Oh no! can't close port!\n" + ex.ToString());
-                }
+                serialPort1.Close();
+                Console.WriteLine("port closed");
                 synced = false;
                 serialCount = 0;
                 OpenPort();
             }));
         }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            printData = true;
+        }
+
     }
 }
 
