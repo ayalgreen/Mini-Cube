@@ -68,7 +68,6 @@ namespace MiniCube
         bool _startedByForm = false;
         bool inventorRunning = false;
         int inventorFrameInterval;
-        //TODO change to proper timer
         ////System.Windows.Forms.Timer inventorFrameTimer;
         //proper timer + it's mutex
         System.Threading.Timer inventorFrameTimerT;
@@ -96,6 +95,9 @@ namespace MiniCube
         char[] pingBuff = { 'r' };
         char[] calBuff = { 'c', 'f', 'c', 'f', 'c', 'f', 'c', 'f' };
         char lastPacketID = (char)0;
+        static Mutex serialPortDataMutex = new Mutex();
+        static Mutex synchronizerMutex = new Mutex();
+        static Mutex packetAnalyzerMutex = new Mutex();
 
         //static vars
         Quaternion quat = new Quaternion(1, 0, 0, 0);
@@ -218,6 +220,7 @@ namespace MiniCube
             serialPort1.BaudRate = BAUD_RATE;
             serialPort1.ParityReplace = (byte)0;
             serialPort1.DtrEnable = true;
+            //event handler to be run on *secondary thread*
             serialPort1.DataReceived += new SerialDataReceivedEventHandler(SerialPort1DataReceived);
             foreach (string port in SerialPort.GetPortNames())
             {
@@ -335,123 +338,156 @@ namespace MiniCube
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
-            while (serialPort1.BytesToRead > 0)
+            if (serialPortDataMutex.WaitOne(0))
             {
-                byte[] buffer = new byte[serialPort1.BytesToRead];
-                serialPort1.Read(buffer, 0, buffer.Length);
-                //TODO: form close mutex
-                if (formClose)
+                while (serialPort1.BytesToRead > 0)
                 {
+                    byte[] buffer = new byte[serialPort1.BytesToRead];
+                    serialPort1.Read(buffer, 0, buffer.Length);
+                    //TODO: form close mutex
+                    if (formClose)
+                    {
+                        return;
+                    }
+                    //TODO: figure this out
+                    //new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
+                    //old control.beginInvoke, works much better
+                    BeginInvoke(new DataProcessDelegate(Synchronizer), buffer);
+                    serialPortDataMutex.ReleaseMutex();
                     return;
                 }
-                BeginInvoke(new DataProcessDelegate(Synchronizer), buffer);     
-                return;
+
+                serialPortDataMutex.ReleaseMutex();
             }
+            //for debugging purposes
+            {
+                Console.WriteLine("serial port data mutex block");
+            }
+
+
+            
         }
 
         //form-thread method for parsing received data and then calling DisplayFromPort()
         private void Synchronizer(byte[] buffer)
         {
-            foreach (byte b in buffer)
+            if (synchronizerMutex.WaitOne(0))
             {
-                int ch = b;         
-                if (!synced && ch != '$')
+                foreach (byte b in buffer)
                 {
-                    //TODO: after long (50 sec) debug break in Stable() (after clicking calibrate) gets deadlocked on this
-                    Console.Write((char)ch);
-                    noSync = true;
-                    continue;  // initial synchronization - also used to resync/realign if needed
-                }
-                //noSync doesn't become true after each packet
-                if (noSync)
-                {
-                    Console.WriteLine("Synced!");
-                    /*old code:
-                    //if regained sync after calibration, should wait for stabilization, adjust heading, and change view.
-                    if (mpuCalibrating)
+                    int ch = b;
+                    if (!synced && ch != '$')
                     {
-                        mpuCalibrating = false;
-                        mpuStable = false;
-                        makeCorrection = true;
-                        mpuStabilizeTimer.Start();
-                    }*/
-                }
-                synced = true;
-                noSync = false;
+                        //TODO: after long (50 sec) debug break in Stable() (after clicking calibrate) gets deadlocked on this
+                        Console.Write((char)ch);
+                        noSync = true;
+                        continue;  // initial synchronization - also used to resync/realign if needed
+                    }
+                    //noSync doesn't become true after each packet
+                    if (noSync)
+                    {
+                        Console.WriteLine("Synced!");
+                        /*old code:
+                        //if regained sync after calibration, should wait for stabilization, adjust heading, and change view.
+                        if (mpuCalibrating)
+                        {
+                            mpuCalibrating = false;
+                            mpuStable = false;
+                            makeCorrection = true;
+                            mpuStabilizeTimer.Start();
+                        }*/
+                    }
+                    synced = true;
+                    noSync = false;
 
-                if ((serialCount == 1 && ch != 2)
-                    || (serialCount == 12 && ch != '\r')
-                    || (serialCount == 13 && ch != '\n'))
-                {
-                    serialCount = 0;
-                    synced = false;         
-                    continue; 
-                }
-                //TODO: only needed as long as close sequence/reconnect may alter serialCount
-                if (serialCount > 0 || ch == '$')
-                {
-                    teapotPacket[serialCount++] = (char)ch;
-                    //congrats! we have a new packet. 
-                    if (serialCount == 14)
+                    if ((serialCount == 1 && ch != 2)
+                        || (serialCount == 12 && ch != '\r')
+                        || (serialCount == 13 && ch != '\n'))
                     {
-                        //restart packet byte position
                         serialCount = 0;
-                        //synced has to be false for serial count 0, so that messages can be displayed
                         synced = false;
-                        //TODO why not make this asyncroneously on a pool thread?
-                        PacketAnalyzer();
+                        continue;
+                    }
+                    //TODO: only needed as long as close sequence/reconnect may alter serialCount
+                    if (serialCount > 0 || ch == '$')
+                    {
+                        teapotPacket[serialCount++] = (char)ch;
+                        //congrats! we have a new packet. 
+                        if (serialCount == 14)
+                        {
+                            //restart packet byte position
+                            serialCount = 0;
+                            //synced has to be false for serial count 0, so that messages can be displayed
+                            synced = false;
+                            //TODO why not make this asyncroneously on a pool thread?
+                            PacketAnalyzer();
+                        }
                     }
                 }
+                synchronizerMutex.ReleaseMutex();
             }
+            //for debugging purposes
+            else
+            {
+                Console.WriteLine("synchronizer mutex block");
+            }
+            
         }
 
         private void PacketAnalyzer()
         {
-            //TODO drop if busy mutex?
-            //needed for simple auto lock/unlock mechanism, as each packet is currently sent twice
-            if (teapotPacket[11] != lastPacketID)
+            if (packetAnalyzerMutex.WaitOne(0))
             {
-                lastPacketID = teapotPacket[11];
+                //needed for simple auto lock/unlock mechanism, as each packet is currently sent twice
+                if (teapotPacket[11] != lastPacketID)
+                {
+                    lastPacketID = teapotPacket[11];
+                }
+                else
+                {
+                    return;
+                }
+
+                // get quaternion from data packet
+                q[0] = ((teapotPacket[2] << 8) | teapotPacket[3]) / 16384.0f;
+                q[1] = ((teapotPacket[4] << 8) | teapotPacket[5]) / 16384.0f;
+                q[2] = ((teapotPacket[6] << 8) | teapotPacket[7]) / 16384.0f;
+                q[3] = ((teapotPacket[8] << 8) | teapotPacket[9]) / 16384.0f;
+                for (int i = 0; i < 4; i++) if (q[i] >= 2) q[i] = -4 + q[i];
+
+                // set our quaternion to new data
+                // adjusted to Inventor Coordinate System
+                oldQuat = quat;
+                quat = new Quaternion(q[0], -q[2], q[3], q[1]);
+                //quat = new Quaternion(q[0], q[1], q[2], q[3]);
+
+                double diffTheta = oldQuat.Angle - quat.Angle;
+                Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
+
+                if (diffTheta > MAX_THETA_DIFF_LOCK || diffVector.Length > MAX_AXIS_DIFF_LOCK)
+                {
+                    ////if (!inventorFrameTimer.Enabled) inventorFrameTimer.Start();
+                    if (!inventorFrameTimerTEnabled)
+                    {
+                        if (inventorFrameTimerT.Change(inventorFrameInterval, inventorFrameInterval)) inventorFrameTimerTEnabled = true;
+                    }
+                }
+                //TODO: decide whats better.
+                /*else
+                {
+                    if (inventorFrameTimer.Enabled) inventorFrameTimer.Stop(); //move this within the FMS timer?
+                }*/
+                packetAnalyzerMutex.ReleaseMutex();
             }
             else
             {
-                return;
+                Console.WriteLine("packet analyzer mutex block");
             }
 
-            // get quaternion from data packet
-            q[0] = ((teapotPacket[2] << 8) | teapotPacket[3]) / 16384.0f;
-            q[1] = ((teapotPacket[4] << 8) | teapotPacket[5]) / 16384.0f;
-            q[2] = ((teapotPacket[6] << 8) | teapotPacket[7]) / 16384.0f;
-            q[3] = ((teapotPacket[8] << 8) | teapotPacket[9]) / 16384.0f;
-            for (int i = 0; i < 4; i++) if (q[i] >= 2) q[i] = -4 + q[i];
-
-            // set our quaternion to new data
-            // adjusted to Inventor Coordinate System
-            oldQuat = quat;
-            quat = new Quaternion(q[0], -q[2], q[3], q[1]);
-            //quat = new Quaternion(q[0], q[1], q[2], q[3]);
-
-            double diffTheta = oldQuat.Angle - quat.Angle;
-            Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
-            
-            if (diffTheta > MAX_THETA_DIFF_LOCK || diffVector.Length > MAX_AXIS_DIFF_LOCK)
-            {
-                ////if (!inventorFrameTimer.Enabled) inventorFrameTimer.Start();
-                if (!inventorFrameTimerTEnabled)
-                {
-                    if (inventorFrameTimerT.Change(inventorFrameInterval, inventorFrameInterval)) inventorFrameTimerTEnabled = true;
-                }
-            }
-            //TODO: decide whats better.
-            /*else
-            {
-                if (inventorFrameTimer.Enabled) inventorFrameTimer.Stop(); //move this within the FMS timer?
-            }*/
         }
         
         /* old code
         //method for updating the inventor cam view
-        //TODO drop if busy mutex 
         private void InventorFrame(object myObject, EventArgs myEventArgs)//Vector3D a, Double theta)
         {
             //no update over "noise", no update during calibration
@@ -513,7 +549,6 @@ namespace MiniCube
 
         //method for updating the inventor cam view
         //Threaded timer version!
-        //TODO drop if busy mutex 
         private void InventorFrameT(object myObject)//Vector3D a, Double theta)
         {
             if (inventorFrameMutex.WaitOne(0))
@@ -575,6 +610,13 @@ namespace MiniCube
                 }
                 inventorFrameMutex.ReleaseMutex();
             }
+            //for debugging purposes
+            /*
+            else
+            {
+                Console.WriteLine("inventor frame mutex block");
+            }
+            */
            
         }
 
@@ -736,8 +778,10 @@ namespace MiniCube
             }
             if (!inventorRunning)
             {
-                //TODO: fix error on inventor close
-                this.Close();
+                this.BeginInvoke(new SimpleDelegate(delegate
+                {
+                    this.Close();
+                }));         
             }
             if (serialPort1.IsOpen)
             {
@@ -796,14 +840,7 @@ namespace MiniCube
 
         private void buttonCalibrate_Click(object sender, EventArgs e)
         {
-            SimpleDelegate cal = new SimpleDelegate(Calibrate);
-            cal.BeginInvoke(null, null);
-            /*old code:
-            if (serialPort1.IsOpen)
-            {
-                serialPort1.Write(calBuff, 0, 8);
-                mpuCalibrating = true;
-            }*/
+            new SimpleDelegate(Calibrate).BeginInvoke(null, null);
         }
 
         private void Calibrate()
@@ -838,7 +875,7 @@ namespace MiniCube
 
         private void buttonReconnect_Click(object sender, EventArgs e)
         {
-            this.BeginInvoke(new EventHandler(delegate
+            this.BeginInvoke(new SimpleDelegate(delegate
             {
                 try
                 {
