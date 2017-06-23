@@ -115,6 +115,7 @@ namespace MiniCube
         bool foundCube = false;
         //old code: System.Windows.Forms.Timer mpuStabilizeTimer;
         string path = @"./Cubecnfg";
+        int dbgcounter = 0;
 
 
         public CubeForm()
@@ -340,19 +341,24 @@ namespace MiniCube
         {
             if (serialPortDataMutex.WaitOne(0))
             {
+                //TODO: only iterates once.  change to if?
                 while (serialPort1.BytesToRead > 0)
                 {
+
+                    //Console.WriteLine("buffer length {0}", serialPort1.BytesToRead);
+                    //TODO only if port isn't closed!
                     byte[] buffer = new byte[serialPort1.BytesToRead];
                     serialPort1.Read(buffer, 0, buffer.Length);
                     //TODO: form close mutex
                     if (formClose)
                     {
+                        serialPortDataMutex.ReleaseMutex();
                         return;
                     }
                     //TODO: figure this out
-                    //new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
+                    new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
                     //old control.beginInvoke, works much better
-                    BeginInvoke(new DataProcessDelegate(Synchronizer), buffer);
+                    //BeginInvoke(new DataProcessDelegate(Synchronizer), buffer);
                     serialPortDataMutex.ReleaseMutex();
                     return;
                 }
@@ -360,12 +366,12 @@ namespace MiniCube
                 serialPortDataMutex.ReleaseMutex();
             }
             //for debugging purposes
+            /*
             {
-                Console.WriteLine("serial port data mutex block");
-            }
-
-
-            
+                Console.WriteLine("serial port data mutex block {0}", dbgcounter);
+                dbgcounter++;
+            }     
+            */       
         }
 
         //form-thread method for parsing received data and then calling DisplayFromPort()
@@ -419,18 +425,19 @@ namespace MiniCube
                             serialCount = 0;
                             //synced has to be false for serial count 0, so that messages can be displayed
                             synced = false;
-                            //TODO why not make this asyncroneously on a pool thread?
-                            PacketAnalyzer();
+                            //try our best not to lose sync
+                            new SimpleDelegate(PacketAnalyzer).BeginInvoke(null, null);
                         }
                     }
                 }
                 synchronizerMutex.ReleaseMutex();
             }
             //for debugging purposes
+            /*
             else
             {
                 Console.WriteLine("synchronizer mutex block");
-            }
+            }*/
             
         }
 
@@ -445,6 +452,7 @@ namespace MiniCube
                 }
                 else
                 {
+                    packetAnalyzerMutex.ReleaseMutex();
                     return;
                 }
 
@@ -464,6 +472,7 @@ namespace MiniCube
                 double diffTheta = oldQuat.Angle - quat.Angle;
                 Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
 
+                //activate frame timer if detected movement
                 if (diffTheta > MAX_THETA_DIFF_LOCK || diffVector.Length > MAX_AXIS_DIFF_LOCK)
                 {
                     ////if (!inventorFrameTimer.Enabled) inventorFrameTimer.Start();
@@ -479,11 +488,13 @@ namespace MiniCube
                 }*/
                 packetAnalyzerMutex.ReleaseMutex();
             }
+            //for debugging porposes
+            /*
             else
             {
                 Console.WriteLine("packet analyzer mutex block");
             }
-
+            */
         }
         
         /* old code
