@@ -22,7 +22,7 @@
             //Test to see if we started the Inventor Application.
             //If Inventor was started by running this form then call the 
             //Quit method.
-            if (_startedByForm && inventorRunning)
+            if (_inventorStartedByForm && inventorRunning)
             {
                 _invApp.Quit();
             }

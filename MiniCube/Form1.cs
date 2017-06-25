@@ -33,10 +33,13 @@ using System.Windows.Forms;
 using System.Windows.Media.Media3D;
 using System.Runtime.InteropServices;
 using Inventor;
+using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 using System.Threading;
 //using InTheHand;
 //using InTheHand.Net.Ports;
 using InTheHand.Net.Sockets;
+
 using InTheHand.Net.Bluetooth;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -65,7 +68,7 @@ namespace MiniCube
 
         //inventor vars
         Inventor.Application _invApp;
-        bool _startedByForm = false;
+        bool _inventorStartedByForm = false;
         bool inventorRunning = false;
         int inventorFrameInterval;
         ////System.Windows.Forms.Timer inventorFrameTimer;
@@ -73,7 +76,19 @@ namespace MiniCube
         System.Threading.Timer inventorFrameTimerT;
         bool inventorFrameTimerTEnabled = false;
         static Mutex inventorFrameMutex = new Mutex();
-        
+
+        //solid vars
+        SldWorks _swApp;
+        bool _solidStartedByForm = false;
+        bool solidRunning = false;
+        int solidFrameInterval;
+        ////System.Windows.Forms.Timer inventorFrameTimer;
+        //proper timer + it's mutex
+        System.Threading.Timer solidFrameTimerT;
+        bool solidFrameTimerTEnabled = false;
+        static Mutex solidFrameMutex = new Mutex();
+
+
         //TODO cam dist adjust
         double camDist = 10;
 
@@ -124,7 +139,10 @@ namespace MiniCube
             InitializeComponent();
             Console.WriteLine("Initializing...");
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(CloseHandler);
+            Console.WriteLine("Inventor...");
             StartInventor();
+            Console.WriteLine("Solid...");
+            StartSolid();
             ////TODO: make software calibration work
             invertedQuat.Invert();
             string[] ports = SerialPort.GetPortNames();
@@ -146,11 +164,13 @@ namespace MiniCube
         private void SetTimers()
         {
             inventorFrameInterval = (int)(1000 / FPS);
+            solidFrameInterval = (int)(1000 / FPS);
             ////inventorFrameTimer = new System.Windows.Forms.Timer();
             ////inventorFrameTimer.Tick += new EventHandler(InventorFrame);
             ////inventorFrameTimer.Interval = inventorFrameInterval;
             //threading timer version
             inventorFrameTimerT = new System.Threading.Timer(InventorFrameT, null, Timeout.Infinite, Timeout.Infinite);
+            solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, Timeout.Infinite, Timeout.Infinite);
 
             /*old code:
             mpuStabilizeTimer = new System.Windows.Forms.Timer();
@@ -204,7 +224,7 @@ namespace MiniCube
                     //running. We will use this Boolean to test in Form1.Designer.cs 
                     //in the dispose method whether or not the Inventor App should
                     //be shut down when the form is closed.
-                    _startedByForm = true;
+                    _inventorStartedByForm = true;
                     inventorRunning = true;
 
                 }
@@ -212,6 +232,38 @@ namespace MiniCube
                 {
                     MessageBox.Show(ex2.ToString());
                     MessageBox.Show("Unable to get or start Inventor");
+                }
+            }
+        }
+
+        private void StartSolid()
+        {
+            try
+            {
+                _swApp = (SldWorks)Marshal.GetActiveObject("SldWorks.Application");
+                inventorRunning = true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Type invAppType = Type.GetTypeFromProgID("SldWorks.Application");
+
+                    _swApp = (SldWorks)System.Activator.CreateInstance(invAppType);
+                    _swApp.Visible = true;
+
+                    //Note: if the Inventor session is left running after this
+                    //form is closed, there will still an be and Inventor.exe 
+                    //running. We will use this Boolean to test in Form1.Designer.cs 
+                    //in the dispose method whether or not the Inventor App should
+                    //be shut down when the form is closed.
+                    _solidStartedByForm = true;
+                    solidRunning = true;
+                }
+                catch (Exception ex2)
+                {
+                    MessageBox.Show(ex2.ToString());
+                    MessageBox.Show("Unable to get or start Solid");
                 }
             }
         }
@@ -329,7 +381,7 @@ namespace MiniCube
             {
                 byte[] buffer = new byte[1024];
                 stream.Read(buffer, 0, buffer.Length);
-                //TODO: form close mutex
+                //TODO: form close lock
                 if (formClose)
                 {
                     break;
@@ -671,6 +723,90 @@ namespace MiniCube
             */
            
         }
+
+
+        //method for updating the solid cam view
+        //TODO:possibly merge with inventor frame.
+        private void SolidFrameT(object myObject)//Vector3D a, Double theta)
+        {
+            if (solidFrameMutex.WaitOne(0))
+            {
+                //no update over "noise", no update during calibration
+                if (!MovementFilter() || !mpuStable)
+                {
+                    solidFrameMutex.ReleaseMutex();
+                    return;
+                }
+
+                lastLockedQuat = quat;
+                Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
+                //tempQuat = Quaternion.Multiply(tempQuat, correctionQuat);
+                Vector3D a = tempQuat.Axis;
+                double theta = tempQuat.Angle;
+                //double theta = quat.Angle;
+                theta *= Math.PI / 180;
+                //move object instead of the camera
+                theta = -theta;
+
+                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+
+                //avoid exceptions if possible before actually updating the frame
+                if (solidRunning)
+                {
+                    try
+                    {
+                        //avoid exceptions if possible
+                        if (_swApp.ActiveDoc != null)
+                        {
+                            IModelDoc doc = _swApp.ActiveDoc;
+                            if (doc.ActiveView != null)
+                            {
+                                IModelView view = doc.ActiveView;
+                                try
+                                {
+
+                                    //TODO: make  solid rotate!
+                                    //view.RotateAboutCenter(params(1) / 99, params(2) / 99);
+                                    /*
+                                    //Stopwatch stopWatch = new Stopwatch();
+                                    //stopWatch.Start();                            
+                                    ICamera cam = view.Camera;
+                                    TransientGeometry tg = _invApp.TransientGeometry;
+                                    cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                    cam.Target = tg.CreatePoint();
+                                    cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                    doc.GraphicsRedraw();
+                                    //stopWatch.Stop();
+                                    //Console.WriteLine(stopWatch.ElapsedMilliseconds);*/
+                                }
+                                //no active view
+                                catch (Exception ex)
+                                {
+                                    MessageBox.Show("Unable to rotate Solid Camera!\n" + ex.ToString());
+                                }
+                            }                            
+                        }
+                    }
+                    //no _swApp
+                    catch (Exception ex)
+                    {
+                        solidRunning = false;
+                        MessageBox.Show("Oh no! Something went wrong with Solid!\n" + ex.ToString());
+                    }
+                }
+                solidFrameMutex.ReleaseMutex();
+            }
+            //for debugging purposes
+            /*
+            else
+            {
+                Console.WriteLine("solid frame mutex block");
+            }
+            */
+
+        }
+
 
         //TODO: make a good filter.
         //function that checks whether a an actual movement of the cube was made
