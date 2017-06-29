@@ -132,7 +132,9 @@ namespace MiniCube
         //old code: System.Windows.Forms.Timer mpuStabilizeTimer;
         string path = @"./Cubecnfg";
         int dbgcounter = 0;
-
+        bool temp1 = false;
+        bool temp2 = false;
+        
 
         public CubeForm()
         {
@@ -241,15 +243,15 @@ namespace MiniCube
             try
             {
                 _swApp = (SldWorks)Marshal.GetActiveObject("SldWorks.Application");
-                inventorRunning = true;
+                solidRunning = true;
             }
             catch (Exception ex)
             {
                 try
                 {
-                    Type invAppType = Type.GetTypeFromProgID("SldWorks.Application");
+                    Type swAppType = Type.GetTypeFromProgID("SldWorks.Application");
 
-                    _swApp = (SldWorks)System.Activator.CreateInstance(invAppType);
+                    _swApp = (SldWorks)System.Activator.CreateInstance(swAppType);
                     _swApp.Visible = true;
 
                     //Note: if the Inventor session is left running after this
@@ -562,6 +564,10 @@ namespace MiniCube
                                 {
                                     if (inventorFrameTimerT.Change(inventorFrameInterval, inventorFrameInterval)) inventorFrameTimerTEnabled = true;
                                 }
+                                if (!solidFrameTimerTEnabled)
+                                {
+                                    if (solidFrameTimerT.Change(solidFrameInterval, solidFrameInterval)) solidFrameTimerTEnabled = true;
+                                }
                             }
                             //TODO: decide whats better.
                             /*else
@@ -658,7 +664,9 @@ namespace MiniCube
             if (inventorFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
-                if (!MovementFilter() || !mpuStable)
+                //TODO: how is this not symmetrical??
+                temp1 = MovementFilter();
+                if (!temp1 || !mpuStable)
                 {
                     inventorFrameMutex.ReleaseMutex();
                     return;
@@ -732,7 +740,9 @@ namespace MiniCube
             if (solidFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
-                if (!MovementFilter() || !mpuStable)
+                //TODO: how is this not symmetrical??
+                temp2 = MovementFilter();
+                if (!temp2 || !mpuStable)
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
@@ -767,7 +777,10 @@ namespace MiniCube
                                 {
 
                                     //TODO: make  solid rotate!
-                                    //view.RotateAboutCenter(params(1) / 99, params(2) / 99);
+                                    MathTransform orientation = view.Orientation3;
+                                    MathTransform transform = view.Transform;
+                                    MathVector translation = view.Translation3;
+                                    view.RotateAboutCenter(0.05,0);
                                     /*
                                     //Stopwatch stopWatch = new Stopwatch();
                                     //stopWatch.Start();                            
@@ -959,12 +972,22 @@ namespace MiniCube
             try
             {
                 _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
+                inventorRunning = true;
             }
             catch (Exception ex)
             {
                 inventorRunning = false;
             }
-            if (!inventorRunning)
+            try
+            {
+                _swApp = (SldWorks)Marshal.GetActiveObject("SldWorks.Application");
+                solidRunning = true;
+            }
+            catch (Exception ex)
+            {
+                solidRunning = false;
+            }
+            if (!solidRunning && !inventorRunning)
             {
                 this.BeginInvoke(new SimpleDelegate(delegate
                 {
@@ -983,6 +1006,7 @@ namespace MiniCube
                     pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
                     ////inventorFrameTimer.Stop();
                     if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
+                    if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
 
                     MessageBox.Show("Oh no! can't write to port!\n" + ex.ToString());
 
@@ -994,6 +1018,7 @@ namespace MiniCube
                 pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
                 ////inventorFrameTimer.Stop();
                 if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
+                if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
             }
 
 
@@ -1020,6 +1045,7 @@ namespace MiniCube
                     pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
                     ////inventorFrameTimer.Stop();
                     if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
+                    if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
                     serialPort1.Close();
                     Console.WriteLine("port closed");
                     synced = false;
