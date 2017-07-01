@@ -34,7 +34,7 @@ using System.Windows.Media.Media3D;
 using System.Runtime.InteropServices;
 using Inventor;
 using SolidWorks.Interop.sldworks;
-using SolidWorks.Interop.swconst;
+//using SolidWorks.Interop.swconst;
 using System.Threading;
 //using InTheHand;
 //using InTheHand.Net.Ports;
@@ -79,6 +79,7 @@ namespace MiniCube
 
         //solid vars
         SldWorks _swApp;
+        MathTransform view;
         bool _solidStartedByForm = false;
         bool solidRunning = false;
         int solidFrameInterval;
@@ -114,7 +115,6 @@ namespace MiniCube
         Object synchronizerLock = new Object();
         Object packetAnalyzerLock = new Object();
         ReaderWriterLockSlim closeLock = new ReaderWriterLockSlim();
-
         //static vars
         Quaternion quat = new Quaternion(1, 0, 0, 0);
         Quaternion oldQuat = new Quaternion(1, 0, 0, 0);
@@ -134,6 +134,17 @@ namespace MiniCube
         int dbgcounter = 0;
         bool temp1 = false;
         bool temp2 = false;
+        double scale = 0;
+        MathUtility swMathUtility;
+        MathVector X;
+        MathVector Y;
+        MathVector Z;
+        MathVector transVect;
+        double[] x = new double[] { 0, 0, 0 };
+        double[] y = new double[] { 0, 0, 0 };
+        double[] z = new double[] { 0, 0, 0 };
+        double[] transArr = new double[] { 0, 0, 0 };
+        double[] orientationMat = new double[16];
         
 
         public CubeForm()
@@ -266,8 +277,14 @@ namespace MiniCube
                 {
                     MessageBox.Show(ex2.ToString());
                     MessageBox.Show("Unable to get or start Solid");
+                    return;
                 }
             }
+            swMathUtility = (MathUtility)_swApp.GetMathUtility();
+            X = swMathUtility.CreateVector(new double[3]);
+            Y = swMathUtility.CreateVector(new double[3]);
+            Z = swMathUtility.CreateVector(new double[3]);
+            transVect = swMathUtility.CreateVector(new double[3]);
         }
 
         private void OpenPort()
@@ -777,10 +794,43 @@ namespace MiniCube
                                 {
 
                                     //TODO: make  solid rotate!
-                                    MathTransform orientation = view.Orientation3;
+                                    tempQuat.Invert();
+                                    double[] rotation = QuatToRotation(tempQuat);
+                                    arrAssign(ref x, rotation[0], rotation[3], rotation[6]);
+                                    arrAssign(ref y, rotation[1], rotation[4], rotation[7]);
+                                    arrAssign(ref z, rotation[2], rotation[5], rotation[8]);
+                                    //arrAssign(ref transArr, 0, 0, 0);
+
+
+
+                                    X = swMathUtility.CreateVector(x);
+                                    Y = swMathUtility.CreateVector(y);
+                                    Z = swMathUtility.CreateVector(z);
+                                    transVect = swMathUtility.CreateVector(transArr);
+
+                                    x = X.ArrayData;
+                                    y = Y.ArrayData;
+                                    z = Z.ArrayData;
+                                    transArr = transVect.ArrayData;
+                                    double scale = view.Scale;
                                     MathTransform transform = view.Transform;
-                                    MathVector translation = view.Translation3;
-                                    view.RotateAboutCenter(0.05,0);
+                                    MathTransform orientation = swMathUtility.CreateTransform(new double[1]);
+                                    orientation.SetData(X, Y, Z, transVect, scale);
+                                    view.Orientation3 = orientation;
+                                    view.RotateAboutCenter(0, 0);
+
+                                    //orientation.IGetData2(ref X, ref Y, ref Z, ref transform, ref scale);
+                                    //orientation.ISetData();
+
+                                    //double[] orientationMat = new double[13] {1, 0, 0,
+                                    //                                          0, 1, 0,
+                                    //                                          0, 0, 1,
+                                    //                                          0, 0, 0,
+                                    //                                          1 };
+
+
+                                    //IMathUtility.ComposeTransform(swVectorX, swVectorY, swVectorZ, xyzOrigin.ConvertToVector, 1#)
+
                                     /*
                                     //Stopwatch stopWatch = new Stopwatch();
                                     //stopWatch.Start();                            
@@ -818,6 +868,31 @@ namespace MiniCube
             }
             */
 
+        }
+
+        private void arrAssign(ref double[] arr, double a0, double a1, double a2)
+        {
+            arr[0] = a0;
+            arr[1] = a1;
+            arr[2] = a2;
+        }
+
+        private double[] QuatToRotation(Quaternion a)
+        {
+            double[] rotation = new double[9];
+            rotation[0] = 1 - (2 * a.Y * a.Y + 2 * a.Z * a.Z);
+            rotation[1] = 2 * a.X * a.Y + 2 * a.Z * a.W;
+            rotation[2] = 2 * a.X * a.Z - 2 * a.Y * a.W;
+
+            rotation[3] = 2 * a.X * a.Y - 2 * a.Z * a.W;
+            rotation[4] = 1 - (2 * a.X * a.X + 2 * a.Z * a.Z);
+            rotation[5] = 2 * a.Y * a.Z + 2 * a.X * a.W;
+
+            rotation[6] = 2 * a.X * a.Z + 2 * a.Y * a.W;
+            rotation[7] = 2 * a.Y * a.Z - 2 * a.X * a.W;
+            rotation[8] = 1 - (2 * a.X * a.X + 2 * a.Y * a.Y);
+
+            return rotation;
         }
 
 
