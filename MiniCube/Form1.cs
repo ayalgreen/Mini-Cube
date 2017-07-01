@@ -1044,24 +1044,30 @@ namespace MiniCube
         //and also send a ping over serial.
         private void PingT(object myObject)
         {
-            try
+            if (!inventorRunning)
             {
-                _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
-                inventorRunning = true;
+                try
+                {
+                    _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
+                    inventorRunning = true;
+                }
+                catch (Exception ex)
+                {
+                    inventorRunning = false;
+                }
             }
-            catch (Exception ex)
+            if (!solidRunning)
             {
-                inventorRunning = false;
-            }
-            try
-            {
-                _swApp = (SldWorks)Marshal.GetActiveObject("SldWorks.Application");
-                solidRunning = true;
-            }
-            catch (Exception ex)
-            {
-                solidRunning = false;
-            }
+                try
+                {
+                    _swApp = (SldWorks)Marshal.GetActiveObject("SldWorks.Application");
+                    solidRunning = true;
+                }
+                catch (Exception ex)
+                {
+                    solidRunning = false;
+                }
+            }            
             if (!solidRunning && !inventorRunning)
             {
                 this.BeginInvoke(new SimpleDelegate(delegate
