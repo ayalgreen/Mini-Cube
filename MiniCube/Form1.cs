@@ -73,8 +73,6 @@ namespace MiniCube
         bool _inventorStartedByForm = false;
         bool inventorRunning = false;
         int inventorFrameInterval;
-        ////System.Windows.Forms.Timer inventorFrameTimer;
-        //proper timer + it's mutex
         System.Threading.Timer inventorFrameTimerT;
         bool inventorFrameTimerTEnabled = false;
         static Mutex inventorFrameMutex = new Mutex();
@@ -85,8 +83,6 @@ namespace MiniCube
         bool _solidStartedByForm = false;
         bool solidRunning = false;
         int solidFrameInterval;
-        ////System.Windows.Forms.Timer inventorFrameTimer;
-        //proper timer + it's mutex
         System.Threading.Timer solidFrameTimerT;
         bool solidFrameTimerTEnabled = false;
         static Mutex solidFrameMutex = new Mutex();
@@ -106,9 +102,6 @@ namespace MiniCube
         bool synced = false;
         bool noSync = true;
         int pingTimerInterval;
-        //TOOO change to proper timer
-        ////System.Windows.Forms.Timer pingTimer;  // = new System.Windows.Forms.Timer();
-        //proper timer
         System.Threading.Timer pingTimerT;
         char[] pingBuff = { 'r' };
         char[] calBuff = { 'c', 'f', 'c', 'f', 'c', 'f', 'c', 'f' };
@@ -128,11 +121,10 @@ namespace MiniCube
         double[] ypr = new Double[3];
         bool formClose = false;
         bool mpuStable = true;
-        //old code: bool mpuCalibrating = false;
-        //old code: bool makeCorrection = false;
         bool foundCube = false;
-        //old code: System.Windows.Forms.Timer mpuStabilizeTimer;
         string path = @"./Cubecnfg";
+
+        //temp vars
         int dbgcounter = 0;
         bool temp1 = false;
         bool temp2 = false;
