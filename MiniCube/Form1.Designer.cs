@@ -42,13 +42,14 @@
             this.buttonReconnect = new System.Windows.Forms.Button();
             this.comboBoxPorts = new System.Windows.Forms.ComboBox();
             this.label27 = new System.Windows.Forms.Label();
+            this.comboBox1 = new System.Windows.Forms.ComboBox();
             this.SuspendLayout();
             // 
             // buttonCalibrate
             // 
             this.buttonCalibrate.Location = new System.Drawing.Point(12, 33);
             this.buttonCalibrate.Name = "buttonCalibrate";
-            this.buttonCalibrate.Size = new System.Drawing.Size(199, 31);
+            this.buttonCalibrate.Size = new System.Drawing.Size(217, 31);
             this.buttonCalibrate.TabIndex = 61;
             this.buttonCalibrate.Text = "Calibrate";
             this.buttonCalibrate.UseVisualStyleBackColor = true;
@@ -58,7 +59,7 @@
             // 
             this.buttonReconnect.Location = new System.Drawing.Point(12, 4);
             this.buttonReconnect.Name = "buttonReconnect";
-            this.buttonReconnect.Size = new System.Drawing.Size(99, 23);
+            this.buttonReconnect.Size = new System.Drawing.Size(70, 23);
             this.buttonReconnect.TabIndex = 72;
             this.buttonReconnect.Text = "Reconnect";
             this.buttonReconnect.UseVisualStyleBackColor = true;
@@ -67,7 +68,7 @@
             // comboBoxPorts
             // 
             this.comboBoxPorts.FormattingEnabled = true;
-            this.comboBoxPorts.Location = new System.Drawing.Point(152, 6);
+            this.comboBoxPorts.Location = new System.Drawing.Point(170, 6);
             this.comboBoxPorts.Name = "comboBoxPorts";
             this.comboBoxPorts.Size = new System.Drawing.Size(59, 21);
             this.comboBoxPorts.TabIndex = 71;
@@ -76,17 +77,35 @@
             // label27
             // 
             this.label27.AutoSize = true;
-            this.label27.Location = new System.Drawing.Point(117, 9);
+            this.label27.Location = new System.Drawing.Point(135, 9);
             this.label27.Name = "label27";
             this.label27.Size = new System.Drawing.Size(29, 13);
             this.label27.TabIndex = 70;
             this.label27.Text = "Port:";
             // 
+            // comboBox1
+            // 
+            this.comboBox1.FormattingEnabled = true;
+            this.comboBox1.Items.AddRange(new object[] {
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6"});
+            this.comboBox1.Location = new System.Drawing.Point(89, 6);
+            this.comboBox1.Name = "comboBox1";
+            this.comboBox1.Size = new System.Drawing.Size(40, 21);
+            this.comboBox1.TabIndex = 73;
+            this.comboBox1.SelectedIndexChanged += new System.EventHandler(this.comboBox1_SelectedIndexChanged);
+            // 
             // CubeForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(223, 70);
+            this.ClientSize = new System.Drawing.Size(241, 70);
+            this.Controls.Add(this.comboBox1);
             this.Controls.Add(this.buttonReconnect);
             this.Controls.Add(this.comboBoxPorts);
             this.Controls.Add(this.label27);
@@ -105,6 +124,7 @@
         private System.Windows.Forms.Button buttonReconnect;
         private System.Windows.Forms.ComboBox comboBoxPorts;
         private System.Windows.Forms.Label label27;
+        private System.Windows.Forms.ComboBox comboBox1;
     }
 }
 
