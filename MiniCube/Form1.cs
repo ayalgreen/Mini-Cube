@@ -634,6 +634,9 @@ namespace MiniCube
                 double[,] finalRot1 = MatMultiply(relativeRotation, calRotation);
                 finalRot1 = MatMultiply(invCalRotation, finalRot1);
                 double[,] finalRot2 = MatMultiply(invCalRotation, currRotation);
+                Quaternion halfAngle = new Quaternion(unInvertedQuat.Axis, unInvertedQuat.Angle / 2);
+                Quaternion invHalfAngle = new Quaternion(unInvertedQuat.Axis, unInvertedQuat.Angle / 2); ;
+                invHalfAngle.Invert();
 
                 //just like option 8 - relative movement!
                 Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
@@ -712,6 +715,42 @@ namespace MiniCube
                     case 8:
                         camPos = MatVectMultiply(relativeRotation, new double[3] { 0, 0, camDist });
                         camUp = MatVectMultiply(relativeRotation, new double[3] { 0, 1, 0 });
+
+                        break;
+                    case 9:
+                        tempQuat = Quaternion.Multiply(invHalfAngle, quat);
+                        tempQuat = Quaternion.Multiply(quat, halfAngle);
+
+                        a = tempQuat.Axis;
+
+                        theta = tempQuat.Angle;
+                        theta *= Math.PI / 180;
+                        //move object instead of the camera
+                        theta = -theta;
+
+                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                        camUp = RotateQuaternion(0, 1, 0, a, theta);
+                        break;
+                    case 10:
+                        tempQuat = Quaternion.Multiply(halfAngle, quat);
+                        tempQuat = Quaternion.Multiply(quat, invHalfAngle);
+
+                        a = tempQuat.Axis;
+
+                        theta = tempQuat.Angle;
+                        theta *= Math.PI / 180;
+                        //move object instead of the camera
+                        theta = -theta;
+
+                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                        camUp = RotateQuaternion(0, 1, 0, a, theta);
+                        break;
+                    case 11:
+                        double[,] testRotation = MatMultiply(relativeRotation, invCalRotation);
+                        testRotation = MatMultiply(calRotation, testRotation);
+
+                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
 
                         break;
                     default:
