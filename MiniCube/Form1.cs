@@ -27,7 +27,7 @@
 //using System.Linq;
 
 #define INV
-#define SOLID
+//#define SOLID
 using System;
 using System.IO;
 using System.IO.Ports;
@@ -635,8 +635,12 @@ namespace MiniCube
                 finalRot1 = MatMultiply(invCalRotation, finalRot1);
                 double[,] finalRot2 = MatMultiply(invCalRotation, currRotation);
                 Quaternion halfAngle = new Quaternion(unInvertedQuat.Axis, unInvertedQuat.Angle / 2);
-                Quaternion invHalfAngle = new Quaternion(unInvertedQuat.Axis, unInvertedQuat.Angle / 2); ;
+                double[,] halfRotation = QuatToRotation(halfAngle);
+                Quaternion invHalfAngle = new Quaternion(unInvertedQuat.Axis, unInvertedQuat.Angle / 2);
+                double[,] invHalfRotation = QuatToRotation(invHalfAngle);
                 invHalfAngle.Invert();
+                double[,] testRotation;
+
 
                 //just like option 8 - relative movement!
                 Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
@@ -746,12 +750,31 @@ namespace MiniCube
                         camUp = RotateQuaternion(0, 1, 0, a, theta);
                         break;
                     case 11:
-                        double[,] testRotation = MatMultiply(relativeRotation, invCalRotation);
+                        testRotation = MatMultiply(relativeRotation, invCalRotation);
                         testRotation = MatMultiply(calRotation, testRotation);
 
                         camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
                         camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
 
+                        break;
+                    case 12:
+                        testRotation = MatMultiply(invCalRotation, relativeRotation);
+                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
+                        break;
+                    case 13:
+                        testRotation = MatMultiply(relativeRotation, invHalfRotation);
+                        testRotation = MatMultiply(halfRotation, testRotation);
+
+                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
+                        break;
+                    case 14:
+                        testRotation = MatMultiply(relativeRotation, halfRotation);
+                        testRotation = MatMultiply(invHalfRotation, testRotation);
+
+                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
                         break;
                     default:
                         break;
