@@ -27,7 +27,7 @@
 //using System.Linq;
 
 #define INV
-//#define SOLID
+#define SOLID
 using System;
 using System.IO;
 using System.IO.Ports;
@@ -93,9 +93,9 @@ namespace MiniCube
 
         //comm vars
         BluetoothDeviceInfo bluetoothDevice;
-        Guid mUUID = new Guid("00001101-0000-1000-8000-00805F9B34FB");      
+        Guid mUUID = new Guid("00001101-0000-1000-8000-00805F9B34FB");
         SerialPort serialPort1 = new SerialPort();
-   
+
         //comm protocol vars
         char[] teapotPacket = new char[14];  // InvenSense Teapot packet
         int serialCount = 0;                 // current packet byte position
@@ -123,6 +123,7 @@ namespace MiniCube
         bool mpuStable = true;
         bool foundCube = false;
         string path = @"./Cubecnfg";
+        int[] range3 = new int[3] { 0, 1, 2 };
 
         //temp vars
         int dbgcounter = 0;
@@ -140,7 +141,8 @@ namespace MiniCube
         double[] transArr = new double[] { 0, 0, 0 };
         double[] orientationMat = new double[16];
         int rotationSelect = 0;
-        
+        Quaternion unInvertedQuat = new Quaternion(-1, 0, 0, 0);
+
 
         public CubeForm()
         {
@@ -621,9 +623,32 @@ namespace MiniCube
                 }
 
                 lastLockedQuat = quat;
+                double[,] currRotation = QuatToRotation(quat);
+                double[,] invCalRotation = QuatToRotation(invertedQuat);
+                double[,] calRotation = QuatToRotation(unInvertedQuat);
 
+                double[,] relativeRotation = MatMultiply(currRotation, invCalRotation);
+                double[,] relativeRotation2 = MatMultiply(invCalRotation, currRotation);
+                Quaternion tempQuat1 = Quaternion.Multiply(quat, invertedQuat);
+                double[,] relativeRotation3 = QuatToRotation(tempQuat1);
+                double[,] finalRot1 = MatMultiply(relativeRotation, calRotation);
+                finalRot1 = MatMultiply(invCalRotation, finalRot1);
+                double[,] finalRot2 = MatMultiply(invCalRotation, currRotation);
+
+                //just like option 8 - relative movement!
                 Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
+                double[,] finalRot3 = QuatToRotation(tempQuat);
                 Vector3D a = tempQuat.Axis;
+
+                double theta = tempQuat.Angle;
+                theta *= Math.PI / 180;
+                //move object instead of the camera
+                theta = -theta;
+
+                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+
+
                 switch (rotationSelect)
                 {
                     case 1:
@@ -633,22 +658,67 @@ namespace MiniCube
                         a.X = tempAxis[0];
                         a.Y = tempAxis[1];
                         a.Z = tempAxis[2];
+
+                        theta = tempQuat.Angle;
+                        theta *= Math.PI / 180;
+                        //move object instead of the camera
+                        theta = -theta;
+
+                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                        camUp = RotateQuaternion(0, 1, 0, a, theta);
+
                         break;
                     case 2:
                         tempQuat = Quaternion.Multiply(quat, invertedQuat);
                         a = tempQuat.Axis;
+
+                        theta = tempQuat.Angle;
+                        theta *= Math.PI / 180;
+                        //move object instead of the camera
+                        theta = -theta;
+
+                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                        camUp = RotateQuaternion(0, 1, 0, a, theta);
+                        break;
+                    case 3:
+
+                        camPos = MatVectMultiply(finalRot3, new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(finalRot3, new double[3] { 0, 1, 0 });
+
+                        break;
+                    case 4:
+                        camPos = MatVectMultiply(finalRot2, new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(finalRot2, new double[3] { 0, 1, 0 });
+
+                        break;
+
+                    case 5:
+
+                        camPos = MatVectMultiply(MatInverse(finalRot3), new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(MatInverse(finalRot3), new double[3] { 0, 1, 0 });
+
+                        break;
+                    case 6:
+                        camPos = MatVectMultiply(MatInverse(finalRot2), new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(MatInverse(finalRot2), new double[3] { 0, 1, 0 });
+
+                        break;
+                    case 7:
+                        camPos = MatVectMultiply(MatInverse(relativeRotation), new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(MatInverse(relativeRotation), new double[3] { 0, 1, 0 });
+
+                        break;
+
+                    case 8:
+                        camPos = MatVectMultiply(relativeRotation, new double[3] { 0, 0, camDist });
+                        camUp = MatVectMultiply(relativeRotation, new double[3] { 0, 1, 0 });
+
                         break;
                     default:
                         break;
                 }
 
-                double theta = tempQuat.Angle;
-                theta *= Math.PI / 180;
-                //move object instead of the camera
-                theta = -theta;
-
-                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+                
 
                 //avoid exceptions if possible before actually updating the frame
                 if (inventorRunning)
@@ -743,10 +813,10 @@ namespace MiniCube
 
                                     //TODO: make  solid rotate!
                                     tempQuat.Invert();
-                                    double[] rotation = QuatToRotation(tempQuat);
-                                    arrAssign(ref x, rotation[0], rotation[3], rotation[6]);
-                                    arrAssign(ref y, rotation[1], rotation[4], rotation[7]);
-                                    arrAssign(ref z, rotation[2], rotation[5], rotation[8]);
+                                    double[,] rotation = QuatToRotation(tempQuat);
+                                    arrAssign(ref x, rotation[0,0], rotation[1,0], rotation[2,0]);
+                                    arrAssign(ref y, rotation[0,1], rotation[1,1], rotation[2,1]);
+                                    arrAssign(ref z, rotation[0,2], rotation[1,2], rotation[2,2]);
                                     //arrAssign(ref transArr, 0, 0, 0);
 
 
@@ -818,31 +888,6 @@ namespace MiniCube
 
         }
 
-        private void arrAssign(ref double[] arr, double a0, double a1, double a2)
-        {
-            arr[0] = a0;
-            arr[1] = a1;
-            arr[2] = a2;
-        }
-
-        private double[] QuatToRotation(Quaternion a)
-        {
-            double[] rotation = new double[9];
-            rotation[0] = 1 - (2 * a.Y * a.Y + 2 * a.Z * a.Z);
-            rotation[1] = 2 * a.X * a.Y + 2 * a.Z * a.W;
-            rotation[2] = 2 * a.X * a.Z - 2 * a.Y * a.W;
-
-            rotation[3] = 2 * a.X * a.Y - 2 * a.Z * a.W;
-            rotation[4] = 1 - (2 * a.X * a.X + 2 * a.Z * a.Z);
-            rotation[5] = 2 * a.Y * a.Z + 2 * a.X * a.W;
-
-            rotation[6] = 2 * a.X * a.Z + 2 * a.Y * a.W;
-            rotation[7] = 2 * a.Y * a.Z - 2 * a.X * a.W;
-            rotation[8] = 1 - (2 * a.X * a.X + 2 * a.Y * a.Y);
-
-            return rotation;
-        }
-
         //TODO: make a good filter.
         //function that checks whether a an actual movement of the cube was made
         private bool MovementFilter()
@@ -861,8 +906,83 @@ namespace MiniCube
             return true;
         }
 
-        //equation due to https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation, specifically:
-        //https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
+        private void arrAssign(ref double[] arr, double a0, double a1, double a2)
+        {
+            arr[0] = a0;
+            arr[1] = a1;
+            arr[2] = a2;
+        }
+
+        //according to http://www.opengl-tutorial.org/assets/faq_quaternions/index.html#Q54
+        //NOT according to wikipedia https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion (wtf?)
+        private double[,] QuatToRotation(Quaternion a)
+        {
+            double[,] rotation = new double[3, 3];
+            rotation[0, 0] = 1 - (2 * a.Y * a.Y + 2 * a.Z * a.Z);
+            rotation[0, 1] = 2 * a.X * a.Y + 2 * a.Z * a.W;
+            rotation[0, 2] = 2 * a.X * a.Z - 2 * a.Y * a.W;
+
+            rotation[1, 0] = 2 * a.X * a.Y - 2 * a.Z * a.W;
+            rotation[1, 1] = 1 - (2 * a.X * a.X + 2 * a.Z * a.Z);
+            rotation[1, 2] = 2 * a.Y * a.Z + 2 * a.X * a.W;
+
+            rotation[2, 0] = 2 * a.X * a.Z + 2 * a.Y * a.W;
+            rotation[2, 1] = 2 * a.Y * a.Z - 2 * a.X * a.W;
+            rotation[2, 2] = 1 - (2 * a.X * a.X + 2 * a.Y * a.Y);
+
+            return rotation;
+        }
+
+        private double[,] MatMultiply(double[,] a, double [,] b)
+        {
+            double[,] c = new double[3, 3];
+            double currSum = 0;
+            foreach (int i in range3)
+            {
+                foreach(int j in range3)
+                {
+                    foreach (int k in range3) {
+                        currSum += a[i, k] * b[k, j];
+                    }
+                    c[i, j] = currSum;
+                    currSum = 0;
+                }
+            }
+            return c;
+        }
+
+        private double[] MatVectMultiply(double[,] a, double[] b)
+        {
+            double[] c = new double[3];
+            double currSum = 0;
+            foreach (int i in range3)
+            {
+                foreach (int j in range3)
+                {
+                    currSum += a[i, j] * b[j];
+                }
+                c[i] = currSum;
+                currSum = 0;
+            }
+
+            return c;
+        }
+
+        private double[,] MatInverse(double[,] a)
+        {
+            double[,] transMat = new double[3, 3];
+            foreach (int i in range3)
+            {
+                foreach(int j in range3)
+                {
+                    transMat[i, j] = a[j, i];
+                }
+            }
+            return transMat;
+        }
+ 
+        //equation due to https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
+        //seems to also invert the matrix! (wtf?)
         private double[] RotateQuaternion(double x, double y, double z, Vector3D a, double theta)
         {
             double[] vect = new double[3];
@@ -1017,7 +1137,9 @@ namespace MiniCube
             //correctionQuat = Quaternion.Multiply(tempQuat, adjustmentQuat);
             ///correctionQuat = new Quaternion(quat.Axis, -quat.Angle);
             ////TODO: make software calibration work
-            invertedQuat = new Quaternion(quat.Axis, quat.Angle);
+            //invertedQuat = new Quaternion(quat.Axis, quat.Angle);
+            unInvertedQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
+            invertedQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
             invertedQuat.Invert();
             mpuStable = true;
 #if (INV)

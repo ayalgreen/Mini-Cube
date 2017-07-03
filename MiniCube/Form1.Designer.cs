@@ -93,7 +93,9 @@
             "3",
             "4",
             "5",
-            "6"});
+            "6",
+            "7",
+            "8"});
             this.comboBox1.Location = new System.Drawing.Point(89, 6);
             this.comboBox1.Name = "comboBox1";
             this.comboBox1.Size = new System.Drawing.Size(40, 21);
