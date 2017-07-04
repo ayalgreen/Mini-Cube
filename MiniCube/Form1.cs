@@ -83,6 +83,7 @@ namespace MiniCube
         MathTransform view;
         bool _solidStartedByForm = false;
         bool solidRunning = false;
+        bool solidDoc = false;
         int solidFrameInterval;
         System.Threading.Timer solidFrameTimerT;
         bool solidFrameTimerTEnabled = false;
@@ -869,27 +870,44 @@ namespace MiniCube
 
                 double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
                 double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+                //0 ms
                 times[0] = stopWatch.ElapsedMilliseconds;
                 //avoid exceptions if possible before actually updating the frame
                 if (solidRunning)
                 {
                     try
                     {
-                        //avoid exceptions if possible
-                        if (_swApp.ActiveDoc != null)
+                        if (!solidDoc)
                         {
+                            //5-19 ms
+                            if (_swApp.ActiveDoc != null)
+                            {
+                                solidDoc = true;
+                            }
+                        }
+                        //avoiding exceptions if possible
+                        
+                        if (solidDoc)
+                        {
+                            times[1] = stopWatch.ElapsedMilliseconds;
+                            //5-14 ms
                             IModelDoc doc = _swApp.ActiveDoc;
                             try
                             {
-                                times[1] = stopWatch.ElapsedMilliseconds;
+                                times[2] = stopWatch.ElapsedMilliseconds;
+                                //4-6 ms somehow solid won't allow this to happen at once
                                 IModelView view = doc.ActiveView;
+                                times[3] = stopWatch.ElapsedMilliseconds;
                                 //TODO: make  solid rotate!
                                 tempQuat.Invert();
                                 double[,] rotation = QuatToRotation(tempQuat);
-
-                                times[2] = stopWatch.ElapsedMilliseconds;
-                                MathTransform transform = view.Transform;
-                                times[3] = stopWatch.ElapsedMilliseconds;
+                                //TODO: translate :(
+                                //15-23 ms no need to translate just yet!
+                                //MathTransform translate = view.Translation3;
+                                //TODO: rescale :(
+                                //no need to rescale yet either
+                                //double scale = view.Scale2;
+                                times[4] = stopWatch.ElapsedMilliseconds;
                                 double[] tempArr = new double[16];
                                 //new X axis
                                 tempArr[0] = rotation[0, 0];
@@ -913,45 +931,25 @@ namespace MiniCube
                                 tempArr[13] = 0;
                                 tempArr[14] = 0;
                                 tempArr[15] = 0;
-
+                                //? ms
                                 orientation.ArrayData = tempArr;
-                                times[4] = stopWatch.ElapsedMilliseconds;
-                                view.Orientation3 = orientation;
                                 times[5] = stopWatch.ElapsedMilliseconds;
-                                view.RotateAboutCenter(0, 0);
+                                //? ms
+                                view.Orientation3 = orientation;
                                 times[6] = stopWatch.ElapsedMilliseconds;
+                                //? ms
+                                view.RotateAboutCenter(0, 0);
+                                //view.GraphicsRedraw(new int[] { });
+                                times[7] = stopWatch.ElapsedMilliseconds;
 
-                                //orientation.IGetData2(ref X, ref Y, ref Z, ref transform, ref scale);
-                                //orientation.ISetData();
-
-                                //double[] orientationMat = new double[13] {1, 0, 0,
-                                //                                          0, 1, 0,
-                                //                                          0, 0, 1,
-                                //                                          0, 0, 0,
-                                //                                          1 };
-
-
-                                //IMathUtility.ComposeTransform(swVectorX, swVectorY, swVectorZ, xyzOrigin.ConvertToVector, 1#)
-
-                                /*
-                                //Stopwatch stopWatch = new Stopwatch();
-                                //stopWatch.Start();                            
-                                ICamera cam = view.Camera;
-                                TransientGeometry tg = _invApp.TransientGeometry;
-                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-                                cam.Target = tg.CreatePoint();
-                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                doc.GraphicsRedraw();
-                                //stopWatch.Stop();
-                                //Console.WriteLine(stopWatch.ElapsedMilliseconds);*/
                             }
                             //no active view
                             catch (Exception ex)
-                                {
-                                    MessageBox.Show("Unable to rotate Solid Camera!\n" + ex.ToString());
-                                }
-                            }                            
-                        //}
+                            {
+                                solidDoc = false;
+                                //MessageBox.Show("Unable to rotate Solid Camera!\n" + ex.ToString());
+                            }
+                        }
                     }
                     //no _swApp
                     catch (Exception ex)
@@ -962,14 +960,15 @@ namespace MiniCube
                 }
                 solidFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
-                //Console.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} total: {7}", times[0], times[1]-times[0], times[2]-times[1], times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[6]);
+                //Console.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
+                //    times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[7] - times[6], times[7]);
             }
             //for debugging purposes
             
-            /*else
+            else
             {
-                Console.WriteLine("solid frame mutex block");
-            }*/
+                //Console.WriteLine("solid frame mutex block");
+            }
             
 
         }
