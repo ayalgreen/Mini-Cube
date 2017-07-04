@@ -27,7 +27,7 @@
 //using System.Linq;
 
 #define INV
-//#define SOLID
+#define SOLID
 using System;
 using System.IO;
 using System.IO.Ports;
@@ -54,7 +54,8 @@ namespace MiniCube
         //TODO: add try to any port operation?
         int BAUD_RATE = 38400;
         string serialComPort = "COM9";
-        int FPS = 60;
+        int iFPS = 60;
+        int sFPS = 60;
         double MAX_THETA_DIFF_LOCK = 0.05;
         double MAX_AXIS_DIFF_LOCK = 0.0005;
         double MAX_THETA_DIFF_UNLOCK = 0.01;
@@ -129,17 +130,13 @@ namespace MiniCube
         int dbgcounter = 0;
         bool temp1 = false;
         bool temp2 = false;
-        double scale = 0;
         MathUtility swMathUtility;
-        MathVector X;
-        MathVector Y;
-        MathVector Z;
-        MathVector transVect;
-        double[] x = new double[] { 0, 0, 0 };
-        double[] y = new double[] { 0, 0, 0 };
-        double[] z = new double[] { 0, 0, 0 };
-        double[] transArr = new double[] { 0, 0, 0 };
-        double[] orientationMat = new double[16];
+        MathTransform orientation;
+        //double[] x = new double[] { 0, 0, 0 };
+        //double[] y = new double[] { 0, 0, 0 };
+        //double[] z = new double[] { 0, 0, 0 };
+        //double[] transArr = new double[] { 0, 0, 0 };
+        //double[] orientationMat = new double[16];
         int rotationSelect = 0;
         Quaternion unInvertedQuat = new Quaternion(-1, 0, 0, 0);
 
@@ -178,11 +175,11 @@ namespace MiniCube
         private void SetTimers()
         {
 #if (INV)
-            inventorFrameInterval = (int)(1000 / FPS);
+            inventorFrameInterval = (int)(1000 / iFPS);
             inventorFrameTimerT = new System.Threading.Timer(InventorFrameT, null, Timeout.Infinite, Timeout.Infinite);
 #endif
 #if (SOLID)
-            solidFrameInterval = (int)(1000 / FPS);
+            solidFrameInterval = (int)(1000 / sFPS);
             solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, Timeout.Infinite, Timeout.Infinite);
 #endif
 
@@ -273,10 +270,11 @@ namespace MiniCube
                 }
             }
             swMathUtility = (MathUtility)_swApp.GetMathUtility();
-            X = swMathUtility.CreateVector(new double[3]);
-            Y = swMathUtility.CreateVector(new double[3]);
-            Z = swMathUtility.CreateVector(new double[3]);
-            transVect = swMathUtility.CreateVector(new double[3]);
+            orientation = swMathUtility.CreateTransform(new double[1]);
+            //X = swMathUtility.CreateVector(new double[3]);
+            //Y = swMathUtility.CreateVector(new double[3]);
+            //Z = swMathUtility.CreateVector(new double[3]);
+            //transVect = swMathUtility.CreateVector(new double[3]);
         }
 
         private void OpenPort()
@@ -611,6 +609,9 @@ namespace MiniCube
         //method for updating the inventor cam view
         private void InventorFrameT(object myObject)//Vector3D a, Double theta)
         {
+            Stopwatch stopWatch = new Stopwatch();
+            double[] times = new double[8];
+            stopWatch.Start();
             if (inventorFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
@@ -780,8 +781,8 @@ namespace MiniCube
                         break;
                 }
 
-                
 
+                times[0] = stopWatch.ElapsedMilliseconds;
                 //avoid exceptions if possible before actually updating the frame
                 if (inventorRunning)
                 {
@@ -792,16 +793,21 @@ namespace MiniCube
                         {
                             try
                             {
+                                times[1] = stopWatch.ElapsedMilliseconds;
                                 //Stopwatch stopWatch = new Stopwatch();
                                 //stopWatch.Start();                            
                                 Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                times[2] = stopWatch.ElapsedMilliseconds;
                                 TransientGeometry tg = _invApp.TransientGeometry;
+                                times[3] = stopWatch.ElapsedMilliseconds;
                                 cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                times[4] = stopWatch.ElapsedMilliseconds;
                                 cam.Target = tg.CreatePoint();
+                                times[5] = stopWatch.ElapsedMilliseconds;
                                 cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                times[6] = stopWatch.ElapsedMilliseconds;
                                 cam.ApplyWithoutTransition();
-                                //stopWatch.Stop();
-                                //Console.WriteLine(stopWatch.ElapsedMilliseconds);
+                                times[7] = stopWatch.ElapsedMilliseconds;
                             }
                             //no active view
                             catch (Exception ex)
@@ -818,14 +824,16 @@ namespace MiniCube
                     }
                 }
                 inventorFrameMutex.ReleaseMutex();
+                stopWatch.Stop();
+                //Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
             }
             //for debugging purposes
-            /*
-            else
+            
+            /*else
             {
                 Console.WriteLine("inventor frame mutex block");
-            }
-            */
+            }*/
+            
            
         }
 
@@ -834,6 +842,10 @@ namespace MiniCube
         //TODO:possibly merge with inventor frame.
         private void SolidFrameT(object myObject)//Vector3D a, Double theta)
         {
+            Stopwatch stopWatch = new Stopwatch();
+            double[] times = new double[8];
+            stopWatch.Start();
+
             if (solidFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
@@ -857,7 +869,7 @@ namespace MiniCube
 
                 double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
                 double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
-
+                times[0] = stopWatch.ElapsedMilliseconds;
                 //avoid exceptions if possible before actually updating the frame
                 if (solidRunning)
                 {
@@ -867,69 +879,79 @@ namespace MiniCube
                         if (_swApp.ActiveDoc != null)
                         {
                             IModelDoc doc = _swApp.ActiveDoc;
-                            if (doc.ActiveView != null)
+                            try
                             {
+                                times[1] = stopWatch.ElapsedMilliseconds;
                                 IModelView view = doc.ActiveView;
-                                try
-                                {
+                                //TODO: make  solid rotate!
+                                tempQuat.Invert();
+                                double[,] rotation = QuatToRotation(tempQuat);
 
-                                    //TODO: make  solid rotate!
-                                    tempQuat.Invert();
-                                    double[,] rotation = QuatToRotation(tempQuat);
-                                    arrAssign(ref x, rotation[0,0], rotation[1,0], rotation[2,0]);
-                                    arrAssign(ref y, rotation[0,1], rotation[1,1], rotation[2,1]);
-                                    arrAssign(ref z, rotation[0,2], rotation[1,2], rotation[2,2]);
-                                    //arrAssign(ref transArr, 0, 0, 0);
+                                times[2] = stopWatch.ElapsedMilliseconds;
+                                MathTransform transform = view.Transform;
+                                times[3] = stopWatch.ElapsedMilliseconds;
+                                double[] tempArr = new double[16];
+                                //new X axis
+                                tempArr[0] = rotation[0, 0];
+                                tempArr[1] = rotation[1, 0];
+                                tempArr[2] = rotation[2, 0];
+                                //new Y axis
+                                tempArr[3] = rotation[0, 1];
+                                tempArr[4] = rotation[1, 1];
+                                tempArr[5] = rotation[2, 1];
+                                //new Z axis
+                                tempArr[6] = rotation[0, 2];
+                                tempArr[7] = rotation[1, 2];
+                                tempArr[8] = rotation[2, 2];
+                                //translation - doesn't mater for orientation!
+                                tempArr[9] = 0;
+                                tempArr[10] = 0;
+                                tempArr[11] = 0;
+                                //scale - doesn't mater for orientation!
+                                tempArr[12] = 1;
+                                //?
+                                tempArr[13] = 0;
+                                tempArr[14] = 0;
+                                tempArr[15] = 0;
+
+                                orientation.ArrayData = tempArr;
+                                times[4] = stopWatch.ElapsedMilliseconds;
+                                view.Orientation3 = orientation;
+                                times[5] = stopWatch.ElapsedMilliseconds;
+                                view.RotateAboutCenter(0, 0);
+                                times[6] = stopWatch.ElapsedMilliseconds;
+
+                                //orientation.IGetData2(ref X, ref Y, ref Z, ref transform, ref scale);
+                                //orientation.ISetData();
+
+                                //double[] orientationMat = new double[13] {1, 0, 0,
+                                //                                          0, 1, 0,
+                                //                                          0, 0, 1,
+                                //                                          0, 0, 0,
+                                //                                          1 };
 
 
+                                //IMathUtility.ComposeTransform(swVectorX, swVectorY, swVectorZ, xyzOrigin.ConvertToVector, 1#)
 
-                                    X = swMathUtility.CreateVector(x);
-                                    Y = swMathUtility.CreateVector(y);
-                                    Z = swMathUtility.CreateVector(z);
-                                    transVect = swMathUtility.CreateVector(transArr);
-
-                                    x = X.ArrayData;
-                                    y = Y.ArrayData;
-                                    z = Z.ArrayData;
-                                    transArr = transVect.ArrayData;
-                                    double scale = view.Scale;
-                                    MathTransform transform = view.Transform;
-                                    MathTransform orientation = swMathUtility.CreateTransform(new double[1]);
-                                    orientation.SetData(X, Y, Z, transVect, scale);
-                                    view.Orientation3 = orientation;
-                                    view.RotateAboutCenter(0, 0);
-
-                                    //orientation.IGetData2(ref X, ref Y, ref Z, ref transform, ref scale);
-                                    //orientation.ISetData();
-
-                                    //double[] orientationMat = new double[13] {1, 0, 0,
-                                    //                                          0, 1, 0,
-                                    //                                          0, 0, 1,
-                                    //                                          0, 0, 0,
-                                    //                                          1 };
-
-
-                                    //IMathUtility.ComposeTransform(swVectorX, swVectorY, swVectorZ, xyzOrigin.ConvertToVector, 1#)
-
-                                    /*
-                                    //Stopwatch stopWatch = new Stopwatch();
-                                    //stopWatch.Start();                            
-                                    ICamera cam = view.Camera;
-                                    TransientGeometry tg = _invApp.TransientGeometry;
-                                    cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-                                    cam.Target = tg.CreatePoint();
-                                    cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                    doc.GraphicsRedraw();
-                                    //stopWatch.Stop();
-                                    //Console.WriteLine(stopWatch.ElapsedMilliseconds);*/
-                                }
-                                //no active view
-                                catch (Exception ex)
+                                /*
+                                //Stopwatch stopWatch = new Stopwatch();
+                                //stopWatch.Start();                            
+                                ICamera cam = view.Camera;
+                                TransientGeometry tg = _invApp.TransientGeometry;
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                cam.Target = tg.CreatePoint();
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                doc.GraphicsRedraw();
+                                //stopWatch.Stop();
+                                //Console.WriteLine(stopWatch.ElapsedMilliseconds);*/
+                            }
+                            //no active view
+                            catch (Exception ex)
                                 {
                                     MessageBox.Show("Unable to rotate Solid Camera!\n" + ex.ToString());
                                 }
                             }                            
-                        }
+                        //}
                     }
                     //no _swApp
                     catch (Exception ex)
@@ -939,14 +961,16 @@ namespace MiniCube
                     }
                 }
                 solidFrameMutex.ReleaseMutex();
+                stopWatch.Stop();
+                //Console.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} total: {7}", times[0], times[1]-times[0], times[2]-times[1], times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[6]);
             }
             //for debugging purposes
-            /*
-            else
+            
+            /*else
             {
                 Console.WriteLine("solid frame mutex block");
-            }
-            */
+            }*/
+            
 
         }
 
