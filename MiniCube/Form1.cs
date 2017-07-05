@@ -26,8 +26,8 @@
 //using System.Drawing;
 //using System.Linq;
 
-#define INV
-#define SOLID
+//#define INV
+//#define SOLID
 using System;
 using System.IO;
 using System.IO.Ports;
@@ -80,7 +80,6 @@ namespace MiniCube
 
         //solid vars
         SldWorks _swApp;
-        MathTransform view;
         bool _solidStartedByForm = false;
         bool solidRunning = false;
         bool solidDoc = false;
@@ -88,7 +87,6 @@ namespace MiniCube
         System.Threading.Timer solidFrameTimerT;
         bool solidFrameTimerTEnabled = false;
         static Mutex solidFrameMutex = new Mutex();
-
 
         //TODO cam dist adjust
         double camDist = 10;
@@ -112,6 +110,7 @@ namespace MiniCube
         Object synchronizerLock = new Object();
         Object packetAnalyzerLock = new Object();
         ReaderWriterLockSlim closeLock = new ReaderWriterLockSlim();
+        
         //static vars
         Quaternion quat = new Quaternion(1, 0, 0, 0);
         Quaternion oldQuat = new Quaternion(1, 0, 0, 0);
@@ -133,13 +132,13 @@ namespace MiniCube
         bool temp2 = false;
         MathUtility swMathUtility;
         MathTransform orientation;
-        //double[] x = new double[] { 0, 0, 0 };
-        //double[] y = new double[] { 0, 0, 0 };
-        //double[] z = new double[] { 0, 0, 0 };
-        //double[] transArr = new double[] { 0, 0, 0 };
-        //double[] orientationMat = new double[16];
         int rotationSelect = 0;
         Quaternion unInvertedQuat = new Quaternion(-1, 0, 0, 0);
+        Stopwatch quatReadingsWatch = new Stopwatch();
+        double [] quatReadingsTimes = new double[10];
+        int quatReading = 0;
+        int quatReading2 = 0;
+
 
 
         public CubeForm()
@@ -303,10 +302,13 @@ namespace MiniCube
                     {
                         MessageBox.Show("Oh no! bad port!\n" + ex.ToString());
                     }
+                    quatReadingsWatch.Start();
                     return;
                 }
             }
-           
+            
+
+
         }
 
         //TODO: automatic Bluetooth stuff
@@ -559,6 +561,22 @@ namespace MiniCube
                             oldQuat = quat;
                             quat = new Quaternion(q[0], -q[2], q[3], q[1]);
                             //quat = new Quaternion(q[0], q[1], q[2], q[3]);
+                            quatReading2++;
+                            if (quatReading2 >= 10)
+                            {
+                                quatReadingsTimes[quatReading] = quatReadingsWatch.ElapsedMilliseconds;
+                                quatReading++;
+                                quatReading2 = 0;
+                            }
+                            
+                            if (quatReading >= 10)
+                            {
+                                quatReading = 0;
+                                double[] qrt = quatReadingsTimes;
+                                Console.WriteLine("quat readings: {0} {1} {2} {3} {4} {5} {6} {7} {8}", qrt[1] - qrt[0], 
+                                   qrt[2] - qrt[1], qrt[3] - qrt[2], qrt[4] - qrt[3], qrt[5] - qrt[4], qrt[6] - qrt[5], 
+                                   qrt[7] - qrt[6], qrt[8] - qrt[7], qrt[9] - qrt[8]);
+                            }
 
                             double diffTheta = oldQuat.Angle - quat.Angle;
                             Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
