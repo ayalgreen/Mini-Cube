@@ -7,6 +7,7 @@ using System.Net;
 using System.Threading;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
+using System.IO;
 
 namespace MiniCube
 {
@@ -15,13 +16,20 @@ namespace MiniCube
         private TcpListener tcpListn = null;
         private Thread listenThread = null;
         private bool isServerListening = false;
+        private bool notTimedOut;
+        private CubeForm cube;
+        private ASCIIEncoding asciiEnco;
 
-        public Server()
+        public Server(CubeForm passedCube)
         {
+            cube = passedCube;
+            asciiEnco = new ASCIIEncoding();
+            notTimedOut = true;
             tcpListn = new TcpListener(IPAddress.Any, 8090);
             listenThread = new Thread(new ThreadStart(listeningToclients));
             this.isServerListening = true;
             listenThread.Start();
+            
         }
 
         //listener
@@ -53,22 +61,31 @@ namespace MiniCube
             Console.WriteLine("Client connected!");
 
             NetworkStream stream = client.GetStream();
+            
+            Handshaker(client, stream);
+            Interact(client, stream);
+                        
+            stream.Flush();
+            stream.Close();
+            client.Close(); //close the client
+        }
 
+        //TODO: add timeout
+        private void Handshaker(TcpClient client, NetworkStream stream)
+        {
             StringBuilder clientMessage = new StringBuilder("");
-            bool notTimedOut = true;
-            string dataString = "";
-            Byte[] bytes = new Byte[0];
+
             while (true && notTimedOut)
             {
                 while (!stream.DataAvailable && notTimedOut) ;
                 //read data from client
-                bytes = new Byte[client.Available];
+                Byte[] bytes = new Byte[client.Available];
 
                 stream.Read(bytes, 0, bytes.Length);
-                ASCIIEncoding asciiEnco = new ASCIIEncoding();
-                
+
                 clientMessage.Append(asciiEnco.GetString(bytes));
-                dataString = clientMessage.ToString();
+                String dataString = clientMessage.ToString();
+                //TODO: does this need to be checked in following receptions?
                 if (new Regex("^GET").IsMatch(dataString))
                 {
                     clientMessage.Clear();
@@ -78,32 +95,113 @@ namespace MiniCube
                         + "Sec-WebSocket-Accept: " + Convert.ToBase64String(
                             SHA1.Create().ComputeHash(
                                 Encoding.UTF8.GetBytes(
-                                    new Regex("Sec-WebSocket-Key: (.*)").Match(dataString).Groups[1].Value.Trim() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))) 
+                                    new Regex("Sec-WebSocket-Key: (.*)").Match(dataString).Groups[1].Value.Trim() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")))
                                     + Environment.NewLine
                         + Environment.NewLine);
                     stream.Write(response, 0, response.Length);
+                    break;
                 }
-                else
-                {
-                    Console.WriteLine(dataString);
-                }                    
             }
-            
-            //write data to client
-            //byte[] byteBuffOut = asciiEnco.GetBytes("Hello client! \n"+"You said : " + clientMessage.ToString() +"\n Your ID  : " + new Random().Next());
-            //stream.Write(byteBuffOut, 0, byteBuffOut.Length);
-            //writing data to the client is not required in this case
+        }
+              
+        private void Interact(TcpClient client, NetworkStream stream)
+        {
+            //TODO: support long messages?
+            bool header = true;
+            int messageLength = 0;
+            Byte[] mask = new Byte[4];
+            Byte[] data;
+            Byte[] decoded;
+            while (true && notTimedOut)
+            {
+                while (!stream.DataAvailable && notTimedOut) ;
+                //TODO: wait to complete the data
+                //read data from client
 
-            stream.Flush();
-            stream.Close();
-            client.Close(); //close the client
+                //first taking care of header
+                if (header)
+                {
+                    if (client.Available >= 6)
+                    {
+                        Byte[] bytes = new Byte[2];
+                        stream.Read(bytes, 0, bytes.Length);
+                        if (bytes[0] != 129)
+                        {
+                            //Byte[] junk = new Byte[client.Available];
+                            //stream.Read(junk, 0, junk.Length);
+                            if (bytes[0] == 136)
+                            {
+                                Console.WriteLine("Client dissconnected!");
+                                break;
+                            }
+                            Console.WriteLine("Unhandled opcode! first byte is {0}", bytes[0]);
+                            break;
+                        }
+                        messageLength = bytes[1] & 127;
+                        if (messageLength > 126)
+                        {
+                            Console.WriteLine("message too long!");
+                            break;
+                        }
+                        stream.Read(mask, 0, mask.Length);
+                        header = false;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+                //then data
+                if (client.Available >= messageLength)
+                {
+                    data = new Byte[messageLength];
+                    decoded = new Byte[messageLength];
+                    stream.Read(data, 0, messageLength);
+                    header = true;
+                    for (int i = 0; i < data.Length; i++)
+                    {
+                        decoded[i] = (Byte)(data[i] ^ mask[i % 4]);
+                    }
+                    String dataString = asciiEnco.GetString(decoded);
+                    //Console.WriteLine(dataString);
+                    if (dataString == "getQuat")
+                    {
+                        SendQuat(stream);
+                    }
+                }
+            }
         }
 
         public void stopServer()
         {
             this.isServerListening = false;
             tcpListn.Stop();
+            notTimedOut = false;
             Console.WriteLine("Server stoped!");
+        }
+
+        public void SendQuat(NetworkStream stream)
+        {
+            float[] quat = cube.GetCorrectedQuatFloats();
+            MemoryStream memStream = new MemoryStream();
+            Byte[] headerBytes = new Byte[2] { (Byte)130, (Byte)16 };
+            memStream.Write(headerBytes, 0, headerBytes.Length);
+            Byte[] XBytes = BitConverter.GetBytes(quat[0]);
+            Byte[] YBytes = BitConverter.GetBytes(quat[1]);
+            Byte[] ZBytes = BitConverter.GetBytes(quat[2]);
+            Byte[] WBytes = BitConverter.GetBytes(quat[3]);
+            //taking care of Endianess js conventation
+            Array.Reverse(XBytes);
+            Array.Reverse(YBytes);
+            Array.Reverse(ZBytes);
+            Array.Reverse(WBytes);
+
+            memStream.Write(XBytes, 0, 4);
+            memStream.Write(YBytes, 0, 4);
+            memStream.Write(ZBytes, 0, 4);
+            memStream.Write(WBytes, 0, 4);
+            Byte[] response = memStream.ToArray();
+            stream.Write(response, 0, response.Length);
         }
 
     }

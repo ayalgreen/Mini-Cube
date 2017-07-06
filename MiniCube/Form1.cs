@@ -163,7 +163,7 @@ namespace MiniCube
             StartSolid();
 #endif
 #if (WEB)
-            server = new Server();
+            server = new Server(this);
             webStarted = true;
 #endif
 
@@ -689,6 +689,14 @@ namespace MiniCube
                 }
             }
             
+        }
+
+        //method for getting the corrected current quat
+        public float[] GetCorrectedQuatFloats()
+        {
+            Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
+            //Console.WriteLine("passing quat values: {0}, {1}, {2}, {3}", (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W);
+            return new float[4] { (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W};
         }
         
         //method for updating the inventor cam view

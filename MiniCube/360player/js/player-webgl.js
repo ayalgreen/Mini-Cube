@@ -177,8 +177,19 @@ var vrHMD, vrSensor;
         }
         mat4.fromQuat(rotation, totalRotation);
       } else {
+        if(connected){
+        //get quat from  cube server!
+        gotQuat = false;
+        connection.send('getQuat');
+        //while (!gotQuat);
+        quat.multiply(totalRotation, manualRotation, cubeOrientation);
+        mat4.fromQuat(rotation, totalRotation);
+        }
+        else {
+        //old code
         quat.multiply(totalRotation, manualRotation, webGL.getPhoneVR().rotationQuat());
         mat4.fromQuat(rotation, totalRotation);
+        }
       }
 
       var projectionInverse = mat4.create();

@@ -30,6 +30,11 @@ var timing = {showTiming: false, // Switch to true to show frame times in the co
 var called = {};
 var videoOptions = {};
 
+var connection;
+var connected = false;
+var cubeOrientation = new Float32Array([0, 0, 0, 1]);
+var gotQuat = false;
+
 function resizeContainer() {
   if (!window.container) {
     window.container = document.getElementById('video-container');
@@ -88,17 +93,31 @@ function runEleVRPlayer() {
 
   setupControls();
 
-
-
   webVR.initWebVR();
 
   webGL.initWebGL();
 
+  connection = new WebSocket('ws://127.0.0.1:8090');
+  connection.binaryType = 'arraybuffer';
 
-  var connection = new WebSocket('ws://127.0.0.1:8090');
+  connection.onmessage = function (event) {
+    // Create a data view of it
+    var data = event.data;
+    var view = new DataView(data);   
+    // Read the bits as a float; note that by doing this, we're implicitly
+    // converting it from a 32-bit float into JavaScript's native 64-bit double
+    var X = view.getFloat32(0);
+    var Y = view.getFloat32(4);
+    var Z = view.getFloat32(8);
+    var W = view.getFloat32(12);
+    // Done
+    cubeOrientation = new Float32Array([X, Y, Z, W]);
+    gotQuat = true;
+  };
 
   connection.onopen = function () {
-    connection.send('Ping'); // Send the message 'Ping' to the server
+    connected = true;
+    connection.send('connected');
   };
 
   if (webGL.gl) {
