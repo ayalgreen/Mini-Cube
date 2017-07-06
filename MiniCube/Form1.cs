@@ -28,6 +28,7 @@
 
 //#define INV
 //#define SOLID
+#define WEB
 using System;
 using System.IO;
 using System.IO.Ports;
@@ -38,6 +39,8 @@ using Inventor;
 using SolidWorks.Interop.sldworks;
 //using SolidWorks.Interop.swconst;
 using System.Threading;
+using System.Net.Sockets;
+using System.Net;
 //using InTheHand;
 //using InTheHand.Net.Ports;
 using InTheHand.Net.Sockets;
@@ -45,6 +48,9 @@ using InTheHand.Net.Sockets;
 using InTheHand.Net.Bluetooth;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 
 namespace MiniCube
 {
@@ -77,6 +83,7 @@ namespace MiniCube
         System.Threading.Timer inventorFrameTimerT;
         bool inventorFrameTimerTEnabled = false;
         static Mutex inventorFrameMutex = new Mutex();
+        double camDist = 100;
 
         //solid vars
         SldWorks _swApp;
@@ -88,8 +95,9 @@ namespace MiniCube
         bool solidFrameTimerTEnabled = false;
         static Mutex solidFrameMutex = new Mutex();
 
-        //TODO cam dist adjust
-        double camDist = 10;
+        //server forr web apps
+        Server server;
+        bool webStarted = false;
 
         //comm vars
         BluetoothDeviceInfo bluetoothDevice;
@@ -154,6 +162,12 @@ namespace MiniCube
             Console.WriteLine("Solid...");
             StartSolid();
 #endif
+#if (WEB)
+            server = new Server();
+            webStarted = true;
+#endif
+
+
             ////TODO: make software calibration work
             invertedQuat.Invert();
             string[] ports = SerialPort.GetPortNames();
@@ -162,7 +176,8 @@ namespace MiniCube
                 comboBoxPorts.Items.Add(port);
             }
             Console.WriteLine("Load config...");
-            loadConfig();
+            LoadConfig();
+            //StartServer();
             Console.WriteLine("Set timers...");
             SetTimers();
             Console.WriteLine("Open port...");
@@ -188,7 +203,7 @@ namespace MiniCube
             pingTimerT = new System.Threading.Timer(PingT, null, Timeout.Infinite, Timeout.Infinite);
         }
 
-        private void loadConfig()
+        private void LoadConfig()
         {
             if (System.IO.File.Exists(path))
             {
@@ -275,6 +290,56 @@ namespace MiniCube
             //Y = swMathUtility.CreateVector(new double[3]);
             //Z = swMathUtility.CreateVector(new double[3]);
             //transVect = swMathUtility.CreateVector(new double[3]);
+        }
+
+        //TODO remove this useless ass server
+        private void StartServer()
+        {
+            TcpListener server = new TcpListener(IPAddress.Parse("127.0.0.1"), 8080);
+            server.Start();
+
+            Console.WriteLine("Server has started on 127.0.0.1:8080");
+            Console.WriteLine("Waiting for a connection...");
+
+            TcpClient client = server.AcceptTcpClient();
+
+            Console.Write("A client connected.");
+
+            NetworkStream stream = client.GetStream();
+
+            //enter to an infinite cycle to be able to handle every change in stream
+            while (true)
+            {
+                while (!stream.DataAvailable) ;
+
+                byte[] bytes = new byte[client.Available];
+                stream.Read(bytes, 0, bytes.Length);
+
+                //translate bytes of request to string
+                string request = Encoding.UTF8.GetString(bytes);
+                if (new Regex("^GET").IsMatch(request))
+                {
+                    byte[] response = Encoding.UTF8.GetBytes("HTTP/1.1 101 Switching Protocols" + System.Environment.NewLine
+                        + "Connection: Upgrade" + System.Environment.NewLine
+                        + "Upgrade: websocket" + System.Environment.NewLine
+                        + "Sec-WebSocket-Accept: " + Convert.ToBase64String(
+                            SHA1.Create().ComputeHash(
+                                Encoding.UTF8.GetBytes(
+                                    new Regex("Sec-WebSocket-Key: (.*)").Match(request).Groups[1].Value.Trim() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+                                )
+                            )
+                        ) + System.Environment.NewLine + System.Environment.NewLine);
+
+                    stream.Write(response, 0, response.Length);
+                }
+                else
+                {
+                    byte[] response = Encoding.UTF8.GetBytes("Data received");
+                    response[0] = 0x81; // denotes this is the final message and it is in text
+                    response[1] = (byte)(response.Length - 2); // payload size = message - header size
+                    stream.Write(response, 0, response.Length);
+                }
+            }
         }
 
         private void OpenPort()
@@ -561,6 +626,7 @@ namespace MiniCube
                             oldQuat = quat;
                             quat = new Quaternion(q[0], -q[2], q[3], q[1]);
                             //quat = new Quaternion(q[0], q[1], q[2], q[3]);
+                            /*//checking quat update speed
                             quatReading2++;
                             if (quatReading2 >= 10)
                             {
@@ -576,7 +642,7 @@ namespace MiniCube
                                 Console.WriteLine("quat readings: {0} {1} {2} {3} {4} {5} {6} {7} {8}", qrt[1] - qrt[0], 
                                    qrt[2] - qrt[1], qrt[3] - qrt[2], qrt[4] - qrt[3], qrt[5] - qrt[4], qrt[6] - qrt[5], 
                                    qrt[7] - qrt[6], qrt[8] - qrt[7], qrt[9] - qrt[8]);
-                            }
+                            }*/
 
                             double diffTheta = oldQuat.Angle - quat.Angle;
                             Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
@@ -634,7 +700,6 @@ namespace MiniCube
             if (inventorFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
-                //TODO: how is this not symmetrical??
                 temp1 = MovementFilter();
                 if (!temp1 || !mpuStable)
                 {
@@ -807,10 +872,51 @@ namespace MiniCube
                 {
                     try
                     {
+                        //TODO: this doesn't necesarily throw exception when inventor is off
                         //avoid exceptions if possible
                         if (_invApp.ActiveView != null)
                         {
                             try
+                            {
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                TransientGeometry tg = _invApp.TransientGeometry;
+                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
+                                cam.Eye.GetPointData(ref eyeArr); //
+                                double[] targetArr = new double[3] { 0, 0, 0 }; //
+                                cam.Target.GetPointData(ref targetArr); //
+                                double[] camVector = new double[3]
+                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
+                                camDist = Math.Sqrt(camVector[0] * camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
+                                /*i think the algorithm should be:
+                                 * get rotation for Z axis to targetpoint (call it A)
+                                 * rotate Z axis (probably a point on it with same dist as target vector size)
+                                 * rotate said point by A (potentially conjugated by the quat. not sure about this?)
+                                 * rotate cam vector by a similar procedure(?)
+                                 */
+                                camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                cam.Target = tg.CreatePoint();
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                cam.ApplyWithoutTransition();
+                            }
+                            /*centers, doesn't change scale!
+                            { 
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                TransientGeometry tg = _invApp.TransientGeometry;
+                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
+                                cam.Eye.GetPointData(ref eyeArr); //
+                                double[] targetArr = new double[3] { 0, 0, 0 }; //
+                                cam.Target.GetPointData(ref targetArr); //
+                                double[] camVector = new double[3] 
+                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
+                                camDist = Math.Sqrt(camVector[0]* camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
+                                camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);                                
+                                cam.Target = tg.CreatePoint();
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                cam.ApplyWithoutTransition();
+                            }*/
+                            /* centers and rescales!
                             {
                                 times[1] = stopWatch.ElapsedMilliseconds;
                                 //Stopwatch stopWatch = new Stopwatch();
@@ -827,7 +933,7 @@ namespace MiniCube
                                 times[6] = stopWatch.ElapsedMilliseconds;
                                 cam.ApplyWithoutTransition();
                                 times[7] = stopWatch.ElapsedMilliseconds;
-                            }
+                            }*/
                             //no active view
                             catch (Exception ex)
                             {
@@ -868,7 +974,6 @@ namespace MiniCube
             if (solidFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
-                //TODO: how is this not symmetrical??
                 temp2 = MovementFilter();
                 if (!temp2 || !mpuStable)
                 {
@@ -1132,7 +1237,7 @@ namespace MiniCube
                 }
             }
 #endif
-            if (!solidRunning && !inventorRunning)
+            if (!solidRunning && !inventorRunning && !webStarted)
             {
                 this.BeginInvoke(new SimpleDelegate(delegate
                 {
@@ -1187,35 +1292,39 @@ namespace MiniCube
         private void CloseSequence()
         {
             //TODO: finish close mutex usage.
-            if (closeLock.TryEnterReadLock(0))
+            //if (closeLock.TryEnterReadLock(0)) {
+            closeLock.EnterWriteLock();
+            try
             {
-                try
-                {
-                    //timers were definitely already created at this stage
-
-                    pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
+                //timers were definitely already created at this stage
+                pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
 #if (INV)
-                    if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
+                if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
 #endif
 #if (SOLID)
-                    if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
+                if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
 #endif
-                    serialPort1.Close();
-                    Console.WriteLine("port closed");
-                    synced = false;
-                    serialCount = 0;
-                    using (StreamWriter sw = System.IO.File.CreateText(path))
-                    {
-                        sw.WriteLine(serialComPort);
-                    }
-                }
-                finally
+#if (WEB)
+                server.stopServer();                    
+#endif
+                serialPort1.Close();
+                Console.WriteLine("port closed");
+                synced = false;
+                serialCount = 0;
+                using (StreamWriter sw = System.IO.File.CreateText(path))
                 {
-                    closeLock.ExitReadLock();
+                    sw.WriteLine(serialComPort);
                 }
             }
+            finally
+            {
+                //closeLock.ExitReadLock();
+                closeLock.ExitWriteLock();
+            }
 
-    }
+            //}
+
+        }
 
 
         private void buttonCalibrate_Click(object sender, EventArgs e)
