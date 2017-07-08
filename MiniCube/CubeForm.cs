@@ -26,9 +26,13 @@
 //using System.Drawing;
 //using System.Linq;
 
-//#define INV
+#define DEBUGGER    //works instead of inventor frame!
+#define DEBUGG      //show mutex blocks
+#define INV
 //#define SOLID
-#define WEB
+//#define WEB
+
+
 using System;
 using System.IO;
 using System.IO.Ports;
@@ -77,6 +81,7 @@ namespace MiniCube
 
         //inventor vars
         Inventor.Application _invApp;
+        TransientGeometry tg;
         bool _inventorStartedByForm = false;
         bool inventorRunning = false;
         int inventorFrameInterval;
@@ -87,6 +92,8 @@ namespace MiniCube
 
         //solid vars
         SldWorks _swApp;
+        MathUtility swMathUtility;
+        MathTransform orientation;
         bool _solidStartedByForm = false;
         bool solidRunning = false;
         bool solidDoc = false;
@@ -138,14 +145,13 @@ namespace MiniCube
         int dbgcounter = 0;
         bool temp1 = false;
         bool temp2 = false;
-        MathUtility swMathUtility;
-        MathTransform orientation;
         int rotationSelect = 0;
         Quaternion unInvertedQuat = new Quaternion(-1, 0, 0, 0);
         Stopwatch quatReadingsWatch = new Stopwatch();
         double [] quatReadingsTimes = new double[10];
         int quatReading = 0;
         int quatReading2 = 0;
+        DebugForm debugger;
 
 
 
@@ -158,15 +164,21 @@ namespace MiniCube
             Console.WriteLine("Inventor...");
             StartInventor();
 #endif
+
 #if (SOLID)
             Console.WriteLine("Solid...");
             StartSolid();
 #endif
+
 #if (WEB)
             server = new Server(this);
             webStarted = true;
 #endif
 
+#if (DEBUGGER)
+            Console.WriteLine("Enter Debugg Mode!");
+            debugger = new DebugForm(this);
+#endif
 
             ////TODO: make software calibration work
             invertedQuat.Invert();
@@ -177,7 +189,6 @@ namespace MiniCube
             }
             Console.WriteLine("Load config...");
             LoadConfig();
-            //StartServer();
             Console.WriteLine("Set timers...");
             SetTimers();
             Console.WriteLine("Open port...");
@@ -191,7 +202,12 @@ namespace MiniCube
         {
 #if (INV)
             inventorFrameInterval = (int)(1000 / iFPS);
+#if (DEBUGGER)
+            inventorFrameTimerT = new System.Threading.Timer(InventorFrameDebug, null, Timeout.Infinite, Timeout.Infinite);
+#else
             inventorFrameTimerT = new System.Threading.Timer(InventorFrameT, null, Timeout.Infinite, Timeout.Infinite);
+#endif
+
 #endif
 #if (SOLID)
             solidFrameInterval = (int)(1000 / sFPS);
@@ -225,6 +241,7 @@ namespace MiniCube
             try
             {
                 _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
+                tg = _invApp.TransientGeometry;
                 inventorRunning = true;
             }
             catch (Exception ex)
@@ -234,6 +251,7 @@ namespace MiniCube
                     Type invAppType = Type.GetTypeFromProgID("Inventor.Application");
 
                     _invApp = (Inventor.Application)System.Activator.CreateInstance(invAppType);
+                    tg = _invApp.TransientGeometry;
                     _invApp.Visible = true;
 
                     //Note: if the Inventor session is left running after this
@@ -286,10 +304,6 @@ namespace MiniCube
             }
             swMathUtility = (MathUtility)_swApp.GetMathUtility();
             orientation = swMathUtility.CreateTransform(new double[1]);
-            //X = swMathUtility.CreateVector(new double[3]);
-            //Y = swMathUtility.CreateVector(new double[3]);
-            //Z = swMathUtility.CreateVector(new double[3]);
-            //transVect = swMathUtility.CreateVector(new double[3]);
         }
 
         //TODO remove this useless ass server
@@ -495,13 +509,13 @@ namespace MiniCube
 
                         serialPortDataMutex.ReleaseMutex();
                     }
-                    //for debugging purposes
-                    /*
+#if (DEBUGG)
+                    else
                     {
                         Console.WriteLine("serial port data mutex block {0}", dbgcounter);
                         dbgcounter++;
-                    }     
-                    */
+                    }
+#endif
                 }
                 finally
                 {
@@ -578,12 +592,12 @@ namespace MiniCube
                             Monitor.Exit(synchronizerLock);
                         }
                     }
-                    //for debugging purposes
-                    /*
+#if (DEBUGG)                    
                     else
                     {
                         Console.WriteLine("synchronizer mutex block");
-                    }*/
+                    }
+#endif
                 }
                 finally
                 {
@@ -650,7 +664,6 @@ namespace MiniCube
                             //activate frame timer if detected movement
                             if (diffTheta > MAX_THETA_DIFF_LOCK || diffVector.Length > MAX_AXIS_DIFF_LOCK)
                             {
-                                ////if (!inventorFrameTimer.Enabled) inventorFrameTimer.Start();
 #if (INV)
                                 if (!inventorFrameTimerTEnabled)
                                 {
@@ -675,13 +688,12 @@ namespace MiniCube
                             Monitor.Exit(packetAnalyzerLock);
                         }
                     }
-                    //for debugging porposes
-                    /*
+#if (DEBUGG)
                     else
                     {
                         Console.WriteLine("packet analyzer mutex block");
                     }
-                    */
+#endif
                 }
                 finally
                 {
@@ -691,7 +703,8 @@ namespace MiniCube
             
         }
 
-        //method for getting the corrected current quat
+        //method for getting the corrected current quat (used for webserver now)
+        //TODO: use in all apps
         public float[] GetCorrectedQuatFloats()
         {
             Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
@@ -699,7 +712,8 @@ namespace MiniCube
             return new float[4] { (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W};
         }
         
-        //method for updating the inventor cam view
+
+        /*old
         private void InventorFrameT(object myObject)//Vector3D a, Double theta)
         {
             Stopwatch stopWatch = new Stopwatch();
@@ -748,13 +762,13 @@ namespace MiniCube
                 double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
                 double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
 
-
+                double[] tempAxis;
                 switch (rotationSelect)
                 {
                     case 1:
                         tempQuat = Quaternion.Multiply(quat, invertedQuat);
                         a = tempQuat.Axis;
-                        double[] tempAxis = RotateQuaternion(a.X, a.Y, a.Z, invertedQuat.Axis, invertedQuat.Angle);
+                        tempAxis = RotateQuaternion(a.X, a.Y, a.Z, invertedQuat.Axis, invertedQuat.Angle);
                         a.X = tempAxis[0];
                         a.Y = tempAxis[1];
                         a.Z = tempAxis[2];
@@ -869,6 +883,23 @@ namespace MiniCube
                         camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
                         camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
                         break;
+                    case 15:
+                        tempQuat = Quaternion.Multiply(quat, invertedQuat);
+                        a = tempQuat.Axis;
+                        tempAxis = RotateQuaternion(a.X, a.Y, a.Z, unInvertedQuat.Axis, unInvertedQuat.Angle);
+                        a.X = tempAxis[0];
+                        a.Y = tempAxis[1];
+                        a.Z = tempAxis[2];
+
+                        theta = tempQuat.Angle;
+                        theta *= Math.PI / 180;
+                        //move object instead of the camera
+                        theta = -theta;
+
+                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                        camUp = RotateQuaternion(0, 1, 0, a, theta);
+                        break;
+
                     default:
                         break;
                 }
@@ -900,12 +931,147 @@ namespace MiniCube
                                  * rotate Z axis (probably a point on it with same dist as target vector size)
                                  * rotate said point by A (potentially conjugated by the quat. not sure about this?)
                                  * rotate cam vector by a similar procedure(?)
-                                 */
+                                 *
                                 camPos = RotateQuaternion(0, 0, camDist, a, theta);
                                 cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
                                 cam.Target = tg.CreatePoint();
                                 cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
                                 cam.ApplyWithoutTransition();
+                            }
+                            /*centers, doesn't change scale!
+                            { 
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                TransientGeometry tg = _invApp.TransientGeometry;
+                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
+                                cam.Eye.GetPointData(ref eyeArr); //
+                                double[] targetArr = new double[3] { 0, 0, 0 }; //
+                                cam.Target.GetPointData(ref targetArr); //
+                                double[] camVector = new double[3] 
+                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
+                                camDist = Math.Sqrt(camVector[0]* camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
+                                camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);                                
+                                cam.Target = tg.CreatePoint();
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                cam.ApplyWithoutTransition();
+                            }*/
+        /* centers and rescales!
+        {
+            times[1] = stopWatch.ElapsedMilliseconds;
+            //Stopwatch stopWatch = new Stopwatch();
+            //stopWatch.Start();                            
+            Inventor.Camera cam = _invApp.ActiveView.Camera;
+            times[2] = stopWatch.ElapsedMilliseconds;
+            TransientGeometry tg = _invApp.TransientGeometry;
+            times[3] = stopWatch.ElapsedMilliseconds;
+            cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+            times[4] = stopWatch.ElapsedMilliseconds;
+            cam.Target = tg.CreatePoint();
+            times[5] = stopWatch.ElapsedMilliseconds;
+            cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+            times[6] = stopWatch.ElapsedMilliseconds;
+            cam.ApplyWithoutTransition();
+            times[7] = stopWatch.ElapsedMilliseconds;
+        }*
+        //no active view
+        catch (Exception ex)
+        {
+            MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
+        }
+    }
+}
+//no _invApp
+catch (Exception ex)
+{
+    inventorRunning = false;
+    MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
+}
+}
+inventorFrameMutex.ReleaseMutex();
+stopWatch.Stop();
+//Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
+}
+//for debugging purposes
+
+/*else
+{
+Console.WriteLine("inventor frame mutex block");
+}*
+}*/
+
+
+        private void InventorFrameDebug(object myObject)
+        {
+            debugger.Frame(quat, invertedQuat, unInvertedQuat, camDist);
+            
+        }
+
+
+        //method for updating the inventor cam view
+        private void InventorFrameT(object myObject)//Vector3D a, Double theta)
+        {
+            //no update over "noise", no update during calibration
+            temp1 = MovementFilter();
+            if (!temp1 || !mpuStable)
+            {
+                return;
+            }
+            lastLockedQuat = quat;
+            
+            //just like option 8 - relative movement!
+            Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
+            Vector3D a = tempQuat.Axis;
+
+            double theta = tempQuat.Angle;
+            theta *= Math.PI / 180;
+            //move object instead of the camera
+            theta = -theta;
+
+            double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+            double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+            
+            ShowInvFrame(a, theta, camUp);
+        }
+
+        //normal use - displaying a frame.
+        public bool ShowInvFrame(Vector3D a, double theta, double[] camUp)
+        {
+            Stopwatch stopWatch = new Stopwatch();
+            double[] times = new double[8];
+            stopWatch.Start();
+            if (inventorFrameMutex.WaitOne(0))
+            {
+                times[0] = stopWatch.ElapsedMilliseconds;
+                //avoid exceptions if possible before actually updating the frame
+                if (inventorRunning)
+                {
+                    try
+                    {
+                        //TODO: this doesn't necesarily throw exception when inventor is off
+                        //avoid exceptions if possible
+                        if (_invApp.ActiveView != null)
+                        {
+                            try
+                            {
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
+                                cam.Eye.GetPointData(ref eyeArr); //
+                                double[] targetArr = new double[3] { 0, 0, 0 }; //
+                                cam.Target.GetPointData(ref targetArr); //
+                                double[] camVector = new double[3]
+                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
+                                camDist = Math.Sqrt(camVector[0] * camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
+                                /*i think the algorithm should be:
+                                 * get rotation for Z axis to targetpoint (call it A)
+                                 * rotate Z axis (probably a point on it with same dist as target vector size)
+                                 * rotate said point by A (potentially conjugated by the quat. not sure about this?)
+                                 * rotate cam vector by a similar procedure(?)
+                                 */
+                                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                cam.Target = tg.CreatePoint();
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                cam.ApplyWithoutTransition();                                
                             }
                             /*centers, doesn't change scale!
                             { 
@@ -960,14 +1126,74 @@ namespace MiniCube
                 stopWatch.Stop();
                 //Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
             }
-            //for debugging purposes
-            
-            /*else
+#if (DEBUGG)
+            else
             {
                 Console.WriteLine("inventor frame mutex block");
-            }*/
-            
-           
+                return false;
+            }
+#endif
+            return true;
+        }
+
+        //for debugg use - display according to pos and up
+        public bool ShowInvFrame(double[] camPos, double[] camUp)
+        {
+            Stopwatch stopWatch = new Stopwatch();
+            double[] times = new double[8];
+            stopWatch.Start();
+            if (inventorFrameMutex.WaitOne(0))
+            {
+                //avoid exceptions if possible before actually updating the frame
+                if (inventorRunning)
+                {
+                    try
+                    {
+                        //TODO: this doesn't necesarily throw exception when inventor is off
+                        //avoid exceptions if possible
+                        if (_invApp.ActiveView != null)
+                        {
+                            try
+                            {
+                                times[0] = stopWatch.ElapsedMilliseconds;
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                times[1] = stopWatch.ElapsedMilliseconds;
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                times[2] = stopWatch.ElapsedMilliseconds;
+                                cam.Target = tg.CreatePoint();
+                                times[3] = stopWatch.ElapsedMilliseconds;
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                times[4] = stopWatch.ElapsedMilliseconds;
+                                cam.ApplyWithoutTransition();
+                                times[5] = stopWatch.ElapsedMilliseconds;
+                            }
+                                                   
+                            //no active view
+                            catch (Exception ex)
+                            {
+                                MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
+                            }
+                        }
+                    }
+                    //no _invApp
+                    catch (Exception ex)
+                    {
+                        inventorRunning = false;
+                        MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
+                    }
+                }
+                inventorFrameMutex.ReleaseMutex();
+                stopWatch.Stop();
+                Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} total: {6}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[5]);
+            }
+#if (DEBUGG)
+            else
+            {
+                Console.WriteLine("inventor frame mutex block");
+                return false;
+            }
+#endif
+            return true;
         }
 
 
@@ -1094,14 +1320,12 @@ namespace MiniCube
                 //Console.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
                 //    times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[7] - times[6], times[7]);
             }
-            //for debugging purposes
-            
+#if (DEBUGG)
             else
             {
-                //Console.WriteLine("solid frame mutex block");
+                Console.WriteLine("solid frame mutex block");
             }
-            
-
+#endif
         }
 
         //TODO: make a good filter.
@@ -1112,8 +1336,8 @@ namespace MiniCube
             Vector3D diffVector = Vector3D.Subtract(lastLockedQuat.Axis, quat.Axis);
             if (!(diffTheta > MAX_THETA_DIFF_UNLOCK || diffVector.Length > MAX_AXIS_DIFF_UNLOCK))
             {
-                ////TODO: re-enable.
-                ////TODO: recalibrate to avoid drift?
+                ////TODO: dis/re-enable timers?
+                ////TODO: recalibrate to prevent stationary drift of cube over time?
                 //avoid jumping due to drifting
                 lastLockedQuat = quat;
                 //inventorFrameTimer.Stop();
@@ -1131,7 +1355,7 @@ namespace MiniCube
 
         //according to http://www.opengl-tutorial.org/assets/faq_quaternions/index.html#Q54
         //NOT according to wikipedia https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion (wtf?)
-        private double[,] QuatToRotation(Quaternion a)
+        public double[,] QuatToRotation(Quaternion a)
         {
             double[,] rotation = new double[3, 3];
             rotation[0, 0] = 1 - (2 * a.Y * a.Y + 2 * a.Z * a.Z);
@@ -1149,7 +1373,8 @@ namespace MiniCube
             return rotation;
         }
 
-        private double[,] MatMultiply(double[,] a, double [,] b)
+        //returns AB
+        public double[,] MatMultiply(double[,] a, double [,] b)
         {
             double[,] c = new double[3, 3];
             double currSum = 0;
@@ -1167,7 +1392,8 @@ namespace MiniCube
             return c;
         }
 
-        private double[] MatVectMultiply(double[,] a, double[] b)
+        //returns AB
+        public double[] MatVectMultiply(double[,] a, double[] b)
         {
             double[] c = new double[3];
             double currSum = 0;
@@ -1184,7 +1410,8 @@ namespace MiniCube
             return c;
         }
 
-        private double[,] MatInverse(double[,] a)
+        //inverting a rotation is just its transpose
+        public double[,] MatInverse(double[,] a)
         {
             double[,] transMat = new double[3, 3];
             foreach (int i in range3)
@@ -1199,7 +1426,7 @@ namespace MiniCube
  
         //equation due to https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
         //seems to also invert the matrix! (wtf?)
-        private double[] RotateQuaternion(double x, double y, double z, Vector3D a, double theta)
+        public double[] RotateQuaternion(double x, double y, double z, Vector3D a, double theta)
         {
             double[] vect = new double[3];
             double c = Math.Cos(theta);
@@ -1346,6 +1573,7 @@ namespace MiniCube
             {
                 return;
             }
+            //what does it do now??
             serialPort1.Write(calBuff, 0, 8);
             mpuStable = false;
             /*//wait for calibration sync loss
@@ -1392,10 +1620,18 @@ namespace MiniCube
             }));
         }
 
-        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
+
+        public void setRotationSelect(int selection)
         {
-            rotationSelect = Int32.Parse(comboBox1.Text);
+            rotationSelect = selection;
         }
+
+        public int getRotationSelect()
+        {
+            return rotationSelect;
+        }
+
+
     }
 }
 
