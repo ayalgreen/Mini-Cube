@@ -1593,8 +1593,54 @@ Console.WriteLine("inventor frame mutex block");
 #if (INV)
             new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
 #endif
+#if (DEBUGGER)
+            debugger.BeginInvoke(new SimpleDelegate(debugger.UpdateDisplayCal));
+#endif
         }
 
+        public void SetInvQuat(Vector3D tempAxis, double tempTheta)
+        {
+            try
+            {
+                invertedQuat = new Quaternion(tempAxis, tempTheta);
+                unInvertedQuat = new Quaternion(tempAxis, tempTheta);
+                unInvertedQuat.Invert();
+            }
+            catch (InvalidOperationException ex)
+            {
+                invertedQuat = new Quaternion();
+                unInvertedQuat = new Quaternion();
+                unInvertedQuat.Invert();
+            }
+        }
+
+        public void SetCalQuat(Vector3D tempAxis, double tempTheta)
+        {
+            try
+            {
+                invertedQuat = new Quaternion(tempAxis, tempTheta);
+                invertedQuat.Invert();
+                unInvertedQuat = new Quaternion(tempAxis, tempTheta);
+            }
+            catch (InvalidOperationException ex)
+            {
+                invertedQuat = new Quaternion();
+                invertedQuat.Invert();
+                unInvertedQuat = new Quaternion();
+            }
+
+
+        }
+
+        public Quaternion GetInvQuat()
+        {
+            return invertedQuat;
+        }
+
+        public Quaternion GetCalQuat()
+        {
+            return unInvertedQuat;
+        }
 
         private void comboBoxPorts_SelectedIndexChanged(object sender, EventArgs e)
         {
