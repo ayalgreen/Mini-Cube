@@ -22,8 +22,13 @@ namespace MiniCube
         private String displayText = "";
         private Quaternion userQuat = new Quaternion();
         public delegate void QuatDelegate(Quaternion passedQuat);
+        public delegate void CamDelegate(double[] camPos, double[] camUp);
         public delegate void SimpleDelegate();
         static Mutex frameMutex = new Mutex();
+        private bool atomicCalc = false;
+        private int[] atomicCalcArray = new int[] { 3, 4, 5, 6, 7, 8, 11, 12, 13, 14};
+        private bool unsupportedCalc = false;
+        private int[] unsupportedCalcArray = new int[] {1, 2, 9, 10};
 
 
         public DebugForm(CubeForm cubeF)
@@ -31,6 +36,15 @@ namespace MiniCube
             InitializeComponent();
             cube = cubeF;
             cube.setRotationSelect(Int32.Parse(comboBox1.Text));
+            if (atomicCalcArray.Contains(Int32.Parse(comboBox1.Text)))
+            {
+                atomicCalc = true;
+            }
+            else
+            {
+                atomicCalc = false;
+            }
+            UpdateDisplayCal();
             this.Show();
         }
 
@@ -39,18 +53,15 @@ namespace MiniCube
         {
             if (frameMutex.WaitOne(0))
             {
+                //will this work???
+                //quat = new Quaternion(quat.X, -quat.Y, -quat.Z, quat.W);
                 if (userInput)
                 {
                     quat = userQuat;
                 }
-                if (breakDisplay)
-                {
-                    displayText = "Broken Display Mode!";
-                    this.BeginInvoke(new QuatDelegate(UpdateDisplayQuat),(quat));
-                    this.BeginInvoke(new SimpleDelegate(UpdateDisplayCal));
-                    goSemaphore.Release();
-                    goSemaphore.WaitOne();
-                }
+                
+                //TODO can throw exceptions
+                this.BeginInvoke(new QuatDelegate(UpdateDisplayCurrQuat), (quat));
 
                 double[,] currRotation = cube.QuatToRotation(quat);
                 double[,] invCalRotation = cube.QuatToRotation(invertedQuat);
@@ -80,7 +91,7 @@ namespace MiniCube
 
                 //-theta so we move object instead of the camera
                 theta = -theta;
-                double[] camPos = cube.RotateQuaternion(0, 0, camDist, a, theta);
+                double[] camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
                 double[] camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
 
                 switch (cube.getRotationSelect())
@@ -98,7 +109,7 @@ namespace MiniCube
                         theta *= Math.PI / 180;
                         //move object instead of the camera
                         theta = -theta;
-                        camPos = cube.RotateQuaternion(0, 0, camDist, a, theta);
+                        camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
                         camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
 
                         break;
@@ -110,51 +121,37 @@ namespace MiniCube
                         theta *= Math.PI / 180;
                         //move object instead of the camera
                         theta = -theta;
-                        camPos = cube.RotateQuaternion(0, 0, camDist, a, theta);
+                        camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
                         camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
                         break;
                     case 3:
 
-                        camPos = cube.MatVectMultiply(finalRot3, new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(finalRot3, new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(finalRot3, new double[3] { 0, 1, 0 });
-
                         break;
                     case 4:
-                        camPos = cube.MatVectMultiply(finalRot2, new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(finalRot2, new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(finalRot2, new double[3] { 0, 1, 0 });
-
                         break;
 
                     case 5:
 
-                        camPos = cube.MatVectMultiply(cube.MatInverse(finalRot3), new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(cube.MatInverse(finalRot3), new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(cube.MatInverse(finalRot3), new double[3] { 0, 1, 0 });
-
                         break;
                     case 6:
-                        camPos = cube.MatVectMultiply(cube.MatInverse(finalRot2), new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(cube.MatInverse(finalRot2), new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(cube.MatInverse(finalRot2), new double[3] { 0, 1, 0 });
 
                         break;
                     case 7:
-                        if (breakDisplay)
-                        {
-                            displayText = "Atomic calculation: Final result.";
-                            goSemaphore.WaitOne();
-                        }
-                        camPos = cube.MatVectMultiply(cube.MatInverse(relativeRotation), new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(cube.MatInverse(relativeRotation), new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(cube.MatInverse(relativeRotation), new double[3] { 0, 1, 0 });
                         break;
 
                     case 8:
-                        if (breakDisplay)
-                        {
-                            displayText = "Atomic calculation: Final result.";
-                            goSemaphore.WaitOne();
-                        }
-                        camPos = cube.MatVectMultiply(relativeRotation, new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(relativeRotation, new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(relativeRotation, new double[3] { 0, 1, 0 });
-
                         break;
                     case 9:
                         tempQuat = Quaternion.Multiply(invHalfAngle, quat);
@@ -179,58 +176,175 @@ namespace MiniCube
                         theta *= Math.PI / 180;
                         //move object instead of the camera
                         theta = -theta;
-                        camPos = cube.RotateQuaternion(0, 0, camDist, a, theta);
+                        camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
                         camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
                         break;
                     case 11:
                         testRotation = cube.MatMultiply(relativeRotation, invCalRotation);
                         testRotation = cube.MatMultiply(calRotation, testRotation);
 
-                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
 
                         break;
                     case 12:
                         testRotation = cube.MatMultiply(invCalRotation, relativeRotation);
-                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
                         break;
                     case 13:
                         testRotation = cube.MatMultiply(relativeRotation, invHalfRotation);
                         testRotation = cube.MatMultiply(halfRotation, testRotation);
 
-                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
                         break;
                     case 14:
                         testRotation = cube.MatMultiply(relativeRotation, halfRotation);
                         testRotation = cube.MatMultiply(invHalfRotation, testRotation);
 
-                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
+                        camPos = cube.MatVectMultiply(testRotation, new double[3] { 0, 0, -camDist });
                         camUp = cube.MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
                         break;
                     case 15:
-
+                        if (breakDisplay)
+                        {
+                            displayText = "Current Quat";
+                            ShowQuat(quat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        if (breakDisplay)
+                        {
+                            displayText = "Inv Cal Quat";
+                            ShowQuat(invertedQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
                         tempQuat = Quaternion.Multiply(quat, invertedQuat);
+                        if (breakDisplay)
+                        {
+                            displayText = "tempQuat = InvCalQuat*Quat";
+                            ShowQuat(tempQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
                         a = tempQuat.Axis;
                         tempAxis = cube.RotateQuaternion(a.X, a.Y, a.Z, unInvertedQuat.Axis,
                                                        unInvertedQuat.Angle * Math.PI / 180);
                         a.X = tempAxis[0];
                         a.Y = tempAxis[1];
                         a.Z = tempAxis[2];
-
+                        theta = tempQuat.Angle;
+                        if (breakDisplay)
+                        {
+                            displayText = "tempQuat is routated about unInvertedQuat";
+                            tempQuat = new Quaternion(a, theta);
+                            ShowQuat(tempQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        theta *= Math.PI / 180;
+                        //move object instead of the camera
+                        theta = -theta;
+                        camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
+                        camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
+                        break;
+                    case 16:
+                        if (breakDisplay)
+                        {
+                            displayText = "Current Quat";
+                            ShowQuat(quat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        if (breakDisplay)
+                        {
+                            displayText = "Inv Cal Quat";
+                            ShowQuat(invertedQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        tempQuat = Quaternion.Multiply(quat, invertedQuat);
+                        if (breakDisplay)
+                        {
+                            displayText = "tempQuat = InvCalQuat*Quat";
+                            ShowQuat(tempQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        a = tempQuat.Axis;
+                        tempAxis = cube.RotateQuaternion(a.X, a.Y, a.Z, invertedQuat.Axis,
+                                                       invertedQuat.Angle * Math.PI / 180);
+                        a.X = tempAxis[0];
+                        a.Y = tempAxis[1];
+                        a.Z = tempAxis[2];
+                        theta = tempQuat.Angle;
+                        if (breakDisplay)
+                        {
+                            displayText = "tempQuat is routated about invertedQuat";
+                            tempQuat = new Quaternion(a, theta);
+                            ShowQuat(tempQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        theta *= Math.PI / 180;
+                        //move object instead of the camera
+                        theta = -theta;
+                        camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
+                        camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
+                        break;
+                    case 17:
+                        if (breakDisplay)
+                        {
+                            displayText = "Current Quat";
+                            ShowQuat(quat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        if (breakDisplay)
+                        {
+                            displayText = "Inv Cal Quat";
+                            ShowQuat(invertedQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        //seems like this give the REAL WORLD (according to the sensor. not it's relative change, but not the virtual either)change from calibration
+                        tempQuat = Quaternion.Multiply(quat, invertedQuat);
+                        if (breakDisplay)
+                        {
+                            displayText = "tempQuat = InvCalQuat*Quat";
+                            ShowQuat(tempQuat, camDist);
+                            goSemaphore.WaitOne(0);
+                            goSemaphore.WaitOne();
+                        }
+                        a = tempQuat.Axis;
                         theta = tempQuat.Angle;
                         theta *= Math.PI / 180;
                         //move object instead of the camera
                         theta = -theta;
-                        camPos = cube.RotateQuaternion(0, 0, camDist, a, theta);
+                        camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
                         camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
                         break;
-
                     default:
                         break;
                 }
+                this.BeginInvoke(new CamDelegate(UpdateDisplayCam), camPos, camUp);
                 cube.ShowInvFrame(camPos, camUp);
+                if (breakDisplay)
+                {
+                    if (atomicCalc)
+                    {
+                        displayText = "Atomic operation: Final Rotation";
+                    }
+                    else
+                    {
+                        displayText = "Final Rotation";
+                    }
+                    this.BeginInvoke(new SimpleDelegate(UpdateDisplayLabel));
+                    goSemaphore.WaitOne(0);
+                    goSemaphore.WaitOne();
+                }
 
                 frameMutex.ReleaseMutex();                
             }           
@@ -247,7 +361,7 @@ namespace MiniCube
         {
             //TODO prevent exceptions due to releasing too many semaphores, and take care of semaphore counting
             go = true;
-            displayTextLabel.Text = displayText;
+            goSemaphore.WaitOne(0);
             goSemaphore.Release();
         }
 
@@ -297,6 +411,21 @@ namespace MiniCube
             UpdateDisplayCal();
         }
 
+        private void ShowQuat(Quaternion tempQuat, double camDist)
+        {
+            this.BeginInvoke(new QuatDelegate(UpdateDisplayTempQuat), tempQuat);
+            Vector3D a = tempQuat.Axis;
+            double theta = tempQuat.Angle;
+            theta *= Math.PI / 180;
+            //move object instead of the camera
+            theta = -theta;
+            double[] camPos = cube.RotateQuaternion(0, 0, -camDist, a, theta);
+            double[] camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
+            this.BeginInvoke(new CamDelegate(UpdateDisplayCam), camPos, camUp);
+            cube.ShowInvFrame(camPos, camUp);
+            this.BeginInvoke(new SimpleDelegate(UpdateDisplayLabel));
+        }
+
 
         public void UpdateDisplayCal()
         {
@@ -313,12 +442,35 @@ namespace MiniCube
             textBoxCalTheta.Text = Convert.ToString(temp.Angle);
         }
 
-        public void UpdateDisplayQuat(Quaternion tempQuat)
+        public void UpdateDisplayCurrQuat(Quaternion tempQuat)
         {
             textBoxCurrX.Text = Convert.ToString(tempQuat.Axis.X);
             textBoxCurrY.Text = Convert.ToString(tempQuat.Axis.Y);
             textBoxCurrZ.Text = Convert.ToString(tempQuat.Axis.Z);
             textBoxCurrTheta.Text = Convert.ToString(tempQuat.Angle);
+        }
+
+        public void UpdateDisplayCam(double[] camPos, double[] camUp)
+        {
+            textBoxCamPosX.Text = Convert.ToString(camPos[0]);
+            textBoxCamPosY.Text = Convert.ToString(camPos[1]);
+            textBoxCamPosZ.Text = Convert.ToString(camPos[2]);
+            textBoxCamUpX.Text = Convert.ToString(camUp[0]);
+            textBoxCamUpY.Text = Convert.ToString(camUp[1]);
+            textBoxCamUpZ.Text = Convert.ToString(camUp[2]);
+        }
+
+        public void UpdateDisplayTempQuat(Quaternion tempQuat)
+        {
+            textBoxDisplayX.Text = Convert.ToString(tempQuat.Axis.X);
+            textBoxDisplayY.Text = Convert.ToString(tempQuat.Axis.Y);
+            textBoxDisplayZ.Text = Convert.ToString(tempQuat.Axis.Z);
+            textBoxDisplayTheta.Text = Convert.ToString(tempQuat.Angle);
+        }
+
+        private void UpdateDisplayLabel()
+        {
+            displayTextLabel.Text = displayText;
         }
 
         private void userInputCheckBox_CheckedChanged(object sender, EventArgs e)
@@ -347,7 +499,20 @@ namespace MiniCube
                 userQuat = new Quaternion(tempAxis, theta);
             }
             catch (InvalidOperationException ex) { }            
-            UpdateDisplayQuat(userQuat);
+            UpdateDisplayCurrQuat(userQuat);
+        }
+
+        private void comboBox1_SelectedIndexChanged_1(object sender, EventArgs e)
+        {
+            cube.setRotationSelect(Int32.Parse(comboBox1.Text));
+            if (atomicCalcArray.Contains(Int32.Parse(comboBox1.Text)))
+            {
+                atomicCalc = true;
+            }
+            else
+            {
+                atomicCalc = false;
+            }
         }
     }
 }

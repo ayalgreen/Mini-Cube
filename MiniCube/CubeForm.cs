@@ -127,10 +127,12 @@ namespace MiniCube
         ReaderWriterLockSlim closeLock = new ReaderWriterLockSlim();
         
         //static vars
-        Quaternion quat = new Quaternion(1, 0, 0, 0);
-        Quaternion oldQuat = new Quaternion(1, 0, 0, 0);
-        Quaternion lastLockedQuat = new Quaternion(1, 0, 0, 0);
-        Quaternion invertedQuat = new Quaternion(-1, 0, 0, 0); //Vect= (-1, 0, 0),  Angle= 180
+        Quaternion quat = new Quaternion(0, 0, 0, 1);
+        Quaternion oldQuat = new Quaternion(0, 0, 0, 1);
+        Quaternion lastLockedQuat = new Quaternion(0, 0, 0, 1);
+        Quaternion invertedQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
+        //before debugging:
+        //Quaternion invertedQuat = new Quaternion(-1, 0, 0, 0); //Vect= (-1, 0, 0),  Angle= 180
         double[] q = new Double[4];
         double[] gravity = new Double[3];
         double[] euler = new Double[3];
@@ -146,7 +148,9 @@ namespace MiniCube
         bool temp1 = false;
         bool temp2 = false;
         int rotationSelect = 0;
-        Quaternion unInvertedQuat = new Quaternion(-1, 0, 0, 0);
+        Quaternion unInvertedQuat = new Quaternion(0, 0, 0, 1);
+        //before debugging
+        //Quaternion unInvertedQuat = new Quaternion(-1, 0, 0, 0);
         Stopwatch quatReadingsWatch = new Stopwatch();
         double [] quatReadingsTimes = new double[10];
         int quatReading = 0;
@@ -638,8 +642,9 @@ namespace MiniCube
                             // set our quaternion to new data
                             // adjusted to Inventor Coordinate System
                             oldQuat = quat;
-                            quat = new Quaternion(q[0], -q[2], q[3], q[1]);
-                            //quat = new Quaternion(q[0], q[1], q[2], q[3]);
+                            quat = new Quaternion(q[0], q[2], -q[3], q[1]);
+                            //this was before debugging
+                            //quat = new Quaternion(q[0], -q[2], q[3], q[1]);
                             /*//checking quat update speed
                             quatReading2++;
                             if (quatReading2 >= 10)
