@@ -175,6 +175,10 @@ var manualRotation = quat.create(),
         video.currentTime = 0.1;
       }
 
+      if(!connected) {
+        connectCubeServer();
+      }
+
       video.play();
       if (!video.paused) { // In case somehow hitting play button doesn't work.
         window.Play.classList.add('hidden');

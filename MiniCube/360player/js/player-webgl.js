@@ -1,3 +1,4 @@
+//this is where the actuall 3D handling is done.
 var positionsBuffer, verticesIndexBuffer, texture;
 var vrHMD, vrSensor;
 
@@ -236,6 +237,8 @@ var vrHMD, vrSensor;
       }
 
       var perspectiveMatrix = mat4.create();
+      
+      //here the frames get drawn
       if (typeof vrHMD !== 'undefined') {
         var leftParams = vrHMD.getEyeParameters('left');
         var rightParams = vrHMD.getEyeParameters('right');

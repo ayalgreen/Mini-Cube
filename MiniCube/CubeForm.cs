@@ -26,11 +26,11 @@
 //using System.Drawing;
 //using System.Linq;
 
-#define DEBUGGER    //works instead of inventor frame!
+//#define DEBUGGER    //works instead of inventor frame!
 #define DEBUGG      //show mutex blocks
 #define INV
-//#define SOLID
-//#define WEB
+#define SOLID
+#define WEB
 
 
 using System;
@@ -43,25 +43,17 @@ using Inventor;
 using SolidWorks.Interop.sldworks;
 //using SolidWorks.Interop.swconst;
 using System.Threading;
-using System.Net.Sockets;
-using System.Net;
 //using InTheHand;
 //using InTheHand.Net.Ports;
+//using InTheHand.Net.Bluetooth;
 using InTheHand.Net.Sockets;
-
-using InTheHand.Net.Bluetooth;
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Security.Cryptography;
 
 namespace MiniCube
 {
     public partial class CubeForm : Form
     {
         //Constants
-        //TODO: add try to any port operation?
         int BAUD_RATE = 38400;
         string serialComPort = "COM9";
         int iFPS = 60;
@@ -72,6 +64,8 @@ namespace MiniCube
         double MAX_AXIS_DIFF_UNLOCK = 0.0001;
         string CUBE_BT_MODULE = "Cube";
         string BT_PIN = "1234";
+        string path = @"./Cubecnfg";
+        int[] range3 = new int[3] { 0, 1, 2 };
 
         //delegates
         public delegate void SimpleDelegate();
@@ -89,6 +83,7 @@ namespace MiniCube
         bool inventorFrameTimerTEnabled = false;
         static Mutex inventorFrameMutex = new Mutex();
         double camDist = 100;
+        bool inventorMovement = false;
 
         //solid vars
         SldWorks _swApp;
@@ -101,6 +96,7 @@ namespace MiniCube
         System.Threading.Timer solidFrameTimerT;
         bool solidFrameTimerTEnabled = false;
         static Mutex solidFrameMutex = new Mutex();
+        bool solidMovement = false;
 
         //server forr web apps
         Server server;
@@ -110,6 +106,7 @@ namespace MiniCube
         BluetoothDeviceInfo bluetoothDevice;
         Guid mUUID = new Guid("00001101-0000-1000-8000-00805F9B34FB");
         SerialPort serialPort1 = new SerialPort();
+        bool portError = false;
 
         //comm protocol vars
         char[] teapotPacket = new char[14];  // InvenSense Teapot packet
@@ -130,34 +127,27 @@ namespace MiniCube
         Quaternion quat = new Quaternion(0, 0, 0, 1);
         Quaternion oldQuat = new Quaternion(0, 0, 0, 1);
         Quaternion lastLockedQuat = new Quaternion(0, 0, 0, 1);
-        Quaternion invertedQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
-        //before debugging:
-        //Quaternion invertedQuat = new Quaternion(-1, 0, 0, 0); //Vect= (-1, 0, 0),  Angle= 180
+        Quaternion invCalQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
+        Quaternion worldQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
+        //receive array from cube
         double[] q = new Double[4];
-        double[] gravity = new Double[3];
-        double[] euler = new Double[3];
-        double[] ypr = new Double[3];
-        bool formClose = false;
         bool mpuStable = true;
         bool foundCube = false;
-        string path = @"./Cubecnfg";
-        int[] range3 = new int[3] { 0, 1, 2 };
+        bool calAlgNum2 = false;
 
-        //temp vars
-        int dbgcounter = 0;
-        bool temp1 = false;
-        bool temp2 = false;
-        int rotationSelect = 0;
+        //debug vars
+        int dbgcounter = 0;                
         Quaternion unInvertedQuat = new Quaternion(0, 0, 0, 1);
-        //before debugging
-        //Quaternion unInvertedQuat = new Quaternion(-1, 0, 0, 0);
         Stopwatch quatReadingsWatch = new Stopwatch();
         double [] quatReadingsTimes = new double[10];
         int quatReading = 0;
         int quatReading2 = 0;
         DebugForm debugger;
+        String closeMutexOwner = "";
 
-
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Setup %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
         public CubeForm()
         {
@@ -185,7 +175,7 @@ namespace MiniCube
 #endif
 
             ////TODO: make software calibration work
-            invertedQuat.Invert();
+            invCalQuat.Invert();
             string[] ports = SerialPort.GetPortNames();
             foreach (string port in ports)
             {
@@ -195,9 +185,8 @@ namespace MiniCube
             LoadConfig();
             Console.WriteLine("Set timers...");
             SetTimers();
-            Console.WriteLine("Open port...");
+            Console.WriteLine("Opening port...");
             OpenPort();
-            Console.WriteLine("Done.");
 
             //OpenBluetooth();
         }
@@ -310,58 +299,11 @@ namespace MiniCube
             orientation = swMathUtility.CreateTransform(new double[1]);
         }
 
-        //TODO remove this useless ass server
-        private void StartServer()
-        {
-            TcpListener server = new TcpListener(IPAddress.Parse("127.0.0.1"), 8080);
-            server.Start();
-
-            Console.WriteLine("Server has started on 127.0.0.1:8080");
-            Console.WriteLine("Waiting for a connection...");
-
-            TcpClient client = server.AcceptTcpClient();
-
-            Console.Write("A client connected.");
-
-            NetworkStream stream = client.GetStream();
-
-            //enter to an infinite cycle to be able to handle every change in stream
-            while (true)
-            {
-                while (!stream.DataAvailable) ;
-
-                byte[] bytes = new byte[client.Available];
-                stream.Read(bytes, 0, bytes.Length);
-
-                //translate bytes of request to string
-                string request = Encoding.UTF8.GetString(bytes);
-                if (new Regex("^GET").IsMatch(request))
-                {
-                    byte[] response = Encoding.UTF8.GetBytes("HTTP/1.1 101 Switching Protocols" + System.Environment.NewLine
-                        + "Connection: Upgrade" + System.Environment.NewLine
-                        + "Upgrade: websocket" + System.Environment.NewLine
-                        + "Sec-WebSocket-Accept: " + Convert.ToBase64String(
-                            SHA1.Create().ComputeHash(
-                                Encoding.UTF8.GetBytes(
-                                    new Regex("Sec-WebSocket-Key: (.*)").Match(request).Groups[1].Value.Trim() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-                                )
-                            )
-                        ) + System.Environment.NewLine + System.Environment.NewLine);
-
-                    stream.Write(response, 0, response.Length);
-                }
-                else
-                {
-                    byte[] response = Encoding.UTF8.GetBytes("Data received");
-                    response[0] = 0x81; // denotes this is the final message and it is in text
-                    response[1] = (byte)(response.Length - 2); // payload size = message - header size
-                    stream.Write(response, 0, response.Length);
-                }
-            }
-        }
-
+        //method for opening a port must be run on UI thread!
         private void OpenPort()
         {
+            buttonReconnect.Enabled = false;
+            buttonReconnect.Text = "Opening";
             serialPort1 = new SerialPort();
             serialPort1.ReadTimeout = 200;
             serialPort1.WriteTimeout = 200;
@@ -375,23 +317,90 @@ namespace MiniCube
             {
                 if (port == serialPort1.PortName)
                 {
-                    try
+                    //TODO: add timeout? - seems to terminate regardless..
+                    portError = false;
+                    Thread newThread = new Thread(this.OpenPortExecution);
+                    newThread.Start();
+                    //enable wait to avoid multi clicking and exceptions?
+                    /*if (!newThread.Join(TimeSpan.FromSeconds(20)))
                     {
-                        serialPort1.Open();
-                        pingTimerT.Change(pingTimerInterval, pingTimerInterval);
-                    }
-                    //if can't open port
-                    catch (Exception ex)
+                        Console.WriteLine("could not open port for over 20 seconds!");
+                    } */
+
+                    if (portError)
                     {
-                        MessageBox.Show("Oh no! bad port!\n" + ex.ToString());
-                    }
+                        MessageBox.Show("Oh no! Error opening port!\n");
+                    }                     
+
                     quatReadingsWatch.Start();
                     return;
                 }
             }
-            
+        }
 
+        //method for closing a port must be run on UI thread!
+        private void ClosePort()
+        {
+            buttonReconnect.Enabled = false;
+            buttonReconnect.Text = "Closing";
+            portError = false;
+            Thread newThread = new Thread(this.ClosePortExecution);
+            newThread.Start();
+            if (portError)
+            {
+                MessageBox.Show("Oh no! Error closing port!\n");
+            }
+        }
 
+        //threaded version for allowing timeout
+        public void OpenPortExecution()
+        {
+            try
+            {
+                serialPort1.Open();
+                if (serialPort1.IsOpen)
+                {
+                    Console.WriteLine("Port opened.");
+                }
+                else
+                {
+                    Console.WriteLine("Could not open port");
+                }                
+                pingTimerT.Change(pingTimerInterval, pingTimerInterval);
+            }
+            //if can't open port
+            catch (Exception ex)
+            {
+                portError = true;
+            }
+            this.BeginInvoke(new SimpleDelegate(delegate
+            {
+                buttonReconnect.Text = "Reconnect";
+                buttonReconnect.Enabled = true;
+            }));            
+        }
+
+        //threaded version for allowing timeouts
+        public void ClosePortExecution()
+        {
+            try
+            {
+                if (serialPort1.IsOpen)
+                {
+                    serialPort1.Close();
+                    Console.WriteLine("port closed");
+                }                
+            }
+            //if can't open port
+            catch (Exception ex)
+            {
+                portError = true;
+            }
+            this.BeginInvoke(new SimpleDelegate(delegate
+            {
+                buttonReconnect.Text = "Reconnect";
+                buttonReconnect.Enabled = true;
+            }));
         }
 
         //TODO: automatic Bluetooth stuff
@@ -486,11 +495,16 @@ namespace MiniCube
         }
         */
 
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Comm Protocol %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
             if (closeLock.TryEnterReadLock(0))
             {
+                closeMutexOwner = "SerialPort1DataReceived";
                 try
                 {
                     if (serialPortDataMutex.WaitOne(0))
@@ -521,6 +535,10 @@ namespace MiniCube
                     }
 #endif
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Error on serial port data received!" + ex.Message);
+                }
                 finally
                 {
                     closeLock.ExitReadLock();
@@ -533,6 +551,7 @@ namespace MiniCube
         {
             if (closeLock.TryEnterReadLock(0))
             {
+                closeMutexOwner = "Synchronizer";
                 try
                 {
                     if (Monitor.TryEnter(synchronizerLock, 0))
@@ -616,6 +635,7 @@ namespace MiniCube
         {
             if (closeLock.TryEnterReadLock(0))
             {
+                closeMutexOwner = "PacketAnalyzer";
                 try
                 {
                     if (Monitor.TryEnter(packetAnalyzerLock, 0))
@@ -708,331 +728,63 @@ namespace MiniCube
             
         }
 
-        //method for getting the corrected current quat (used for webserver now)
-        //TODO: use in all apps
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Display %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        //method for getting the corrected current quat
+        public Quaternion GetCorrectedQuat()
+        {
+            //tempQuat = R(C^-1)
+            Quaternion tempQuat = Quaternion.Multiply(invCalQuat, quat);
+            if (calAlgNum2)
+            {
+                //World view correction:
+                //tempQuat = (C^-1)R
+                tempQuat = Quaternion.Multiply(quat, invCalQuat);
+                //tempQuat = W(C^-1)R
+                tempQuat = Quaternion.Multiply(tempQuat, worldQuat);
+                Quaternion invWorldQuat = new Quaternion(worldQuat.X, worldQuat.Y, worldQuat.Z, worldQuat.W);
+                invWorldQuat.Invert();
+                //tempQuat = W(C^-1)R(W^-1)
+                tempQuat = Quaternion.Multiply(invWorldQuat, tempQuat);
+            }
+            return tempQuat;
+        }
+
+
+        //method for getting the corrected current quat as float array (used for webserver now)
         public float[] GetCorrectedQuatFloats()
         {
-            Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
-            //Console.WriteLine("passing quat values: {0}, {1}, {2}, {3}", (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W);
+            Quaternion tempQuat = GetCorrectedQuat();
             return new float[4] { (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W};
         }
-        
 
-        /*old
-        private void InventorFrameT(object myObject)//Vector3D a, Double theta)
-        {
-            Stopwatch stopWatch = new Stopwatch();
-            double[] times = new double[8];
-            stopWatch.Start();
-            if (inventorFrameMutex.WaitOne(0))
-            {
-                //no update over "noise", no update during calibration
-                temp1 = MovementFilter();
-                if (!temp1 || !mpuStable)
-                {
-                    inventorFrameMutex.ReleaseMutex();
-                    return;
-                }
-
-                lastLockedQuat = quat;
-                double[,] currRotation = QuatToRotation(quat);
-                double[,] invCalRotation = QuatToRotation(invertedQuat);
-                double[,] calRotation = QuatToRotation(unInvertedQuat);
-
-                double[,] relativeRotation = MatMultiply(currRotation, invCalRotation);
-                double[,] relativeRotation2 = MatMultiply(invCalRotation, currRotation);
-                Quaternion tempQuat1 = Quaternion.Multiply(quat, invertedQuat);
-                double[,] relativeRotation3 = QuatToRotation(tempQuat1);
-                double[,] finalRot1 = MatMultiply(relativeRotation, calRotation);
-                finalRot1 = MatMultiply(invCalRotation, finalRot1);
-                double[,] finalRot2 = MatMultiply(invCalRotation, currRotation);
-                Quaternion halfAngle = new Quaternion(unInvertedQuat.Axis, unInvertedQuat.Angle / 2);
-                double[,] halfRotation = QuatToRotation(halfAngle);
-                Quaternion invHalfAngle = new Quaternion(unInvertedQuat.Axis, unInvertedQuat.Angle / 2);
-                double[,] invHalfRotation = QuatToRotation(invHalfAngle);
-                invHalfAngle.Invert();
-                double[,] testRotation;
-
-
-                //just like option 8 - relative movement!
-                Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
-                double[,] finalRot3 = QuatToRotation(tempQuat);
-                Vector3D a = tempQuat.Axis;
-
-                double theta = tempQuat.Angle;
-                theta *= Math.PI / 180;
-                //move object instead of the camera
-                theta = -theta;
-
-                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
-
-                double[] tempAxis;
-                switch (rotationSelect)
-                {
-                    case 1:
-                        tempQuat = Quaternion.Multiply(quat, invertedQuat);
-                        a = tempQuat.Axis;
-                        tempAxis = RotateQuaternion(a.X, a.Y, a.Z, invertedQuat.Axis, invertedQuat.Angle);
-                        a.X = tempAxis[0];
-                        a.Y = tempAxis[1];
-                        a.Z = tempAxis[2];
-
-                        theta = tempQuat.Angle;
-                        theta *= Math.PI / 180;
-                        //move object instead of the camera
-                        theta = -theta;
-
-                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                        camUp = RotateQuaternion(0, 1, 0, a, theta);
-
-                        break;
-                    case 2:
-                        tempQuat = Quaternion.Multiply(quat, invertedQuat);
-                        a = tempQuat.Axis;
-
-                        theta = tempQuat.Angle;
-                        theta *= Math.PI / 180;
-                        //move object instead of the camera
-                        theta = -theta;
-
-                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                        camUp = RotateQuaternion(0, 1, 0, a, theta);
-                        break;
-                    case 3:
-
-                        camPos = MatVectMultiply(finalRot3, new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(finalRot3, new double[3] { 0, 1, 0 });
-
-                        break;
-                    case 4:
-                        camPos = MatVectMultiply(finalRot2, new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(finalRot2, new double[3] { 0, 1, 0 });
-
-                        break;
-
-                    case 5:
-
-                        camPos = MatVectMultiply(MatInverse(finalRot3), new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(MatInverse(finalRot3), new double[3] { 0, 1, 0 });
-
-                        break;
-                    case 6:
-                        camPos = MatVectMultiply(MatInverse(finalRot2), new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(MatInverse(finalRot2), new double[3] { 0, 1, 0 });
-
-                        break;
-                    case 7:
-                        camPos = MatVectMultiply(MatInverse(relativeRotation), new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(MatInverse(relativeRotation), new double[3] { 0, 1, 0 });
-
-                        break;
-
-                    case 8:
-                        camPos = MatVectMultiply(relativeRotation, new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(relativeRotation, new double[3] { 0, 1, 0 });
-
-                        break;
-                    case 9:
-                        tempQuat = Quaternion.Multiply(invHalfAngle, quat);
-                        tempQuat = Quaternion.Multiply(quat, halfAngle);
-
-                        a = tempQuat.Axis;
-
-                        theta = tempQuat.Angle;
-                        theta *= Math.PI / 180;
-                        //move object instead of the camera
-                        theta = -theta;
-
-                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                        camUp = RotateQuaternion(0, 1, 0, a, theta);
-                        break;
-                    case 10:
-                        tempQuat = Quaternion.Multiply(halfAngle, quat);
-                        tempQuat = Quaternion.Multiply(quat, invHalfAngle);
-
-                        a = tempQuat.Axis;
-
-                        theta = tempQuat.Angle;
-                        theta *= Math.PI / 180;
-                        //move object instead of the camera
-                        theta = -theta;
-
-                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                        camUp = RotateQuaternion(0, 1, 0, a, theta);
-                        break;
-                    case 11:
-                        testRotation = MatMultiply(relativeRotation, invCalRotation);
-                        testRotation = MatMultiply(calRotation, testRotation);
-
-                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
-
-                        break;
-                    case 12:
-                        testRotation = MatMultiply(invCalRotation, relativeRotation);
-                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
-                        break;
-                    case 13:
-                        testRotation = MatMultiply(relativeRotation, invHalfRotation);
-                        testRotation = MatMultiply(halfRotation, testRotation);
-
-                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
-                        break;
-                    case 14:
-                        testRotation = MatMultiply(relativeRotation, halfRotation);
-                        testRotation = MatMultiply(invHalfRotation, testRotation);
-
-                        camPos = MatVectMultiply(testRotation, new double[3] { 0, 0, camDist });
-                        camUp = MatVectMultiply(testRotation, new double[3] { 0, 1, 0 });
-                        break;
-                    case 15:
-                        tempQuat = Quaternion.Multiply(quat, invertedQuat);
-                        a = tempQuat.Axis;
-                        tempAxis = RotateQuaternion(a.X, a.Y, a.Z, unInvertedQuat.Axis, unInvertedQuat.Angle);
-                        a.X = tempAxis[0];
-                        a.Y = tempAxis[1];
-                        a.Z = tempAxis[2];
-
-                        theta = tempQuat.Angle;
-                        theta *= Math.PI / 180;
-                        //move object instead of the camera
-                        theta = -theta;
-
-                        camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                        camUp = RotateQuaternion(0, 1, 0, a, theta);
-                        break;
-
-                    default:
-                        break;
-                }
-
-
-                times[0] = stopWatch.ElapsedMilliseconds;
-                //avoid exceptions if possible before actually updating the frame
-                if (inventorRunning)
-                {
-                    try
-                    {
-                        //TODO: this doesn't necesarily throw exception when inventor is off
-                        //avoid exceptions if possible
-                        if (_invApp.ActiveView != null)
-                        {
-                            try
-                            {
-                                Inventor.Camera cam = _invApp.ActiveView.Camera;
-                                TransientGeometry tg = _invApp.TransientGeometry;
-                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
-                                cam.Eye.GetPointData(ref eyeArr); //
-                                double[] targetArr = new double[3] { 0, 0, 0 }; //
-                                cam.Target.GetPointData(ref targetArr); //
-                                double[] camVector = new double[3]
-                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
-                                camDist = Math.Sqrt(camVector[0] * camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
-                                /*i think the algorithm should be:
-                                 * get rotation for Z axis to targetpoint (call it A)
-                                 * rotate Z axis (probably a point on it with same dist as target vector size)
-                                 * rotate said point by A (potentially conjugated by the quat. not sure about this?)
-                                 * rotate cam vector by a similar procedure(?)
-                                 *
-                                camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-                                cam.Target = tg.CreatePoint();
-                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                cam.ApplyWithoutTransition();
-                            }
-                            /*centers, doesn't change scale!
-                            { 
-                                Inventor.Camera cam = _invApp.ActiveView.Camera;
-                                TransientGeometry tg = _invApp.TransientGeometry;
-                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
-                                cam.Eye.GetPointData(ref eyeArr); //
-                                double[] targetArr = new double[3] { 0, 0, 0 }; //
-                                cam.Target.GetPointData(ref targetArr); //
-                                double[] camVector = new double[3] 
-                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
-                                camDist = Math.Sqrt(camVector[0]* camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
-                                camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);                                
-                                cam.Target = tg.CreatePoint();
-                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                cam.ApplyWithoutTransition();
-                            }*/
-        /* centers and rescales!
-        {
-            times[1] = stopWatch.ElapsedMilliseconds;
-            //Stopwatch stopWatch = new Stopwatch();
-            //stopWatch.Start();                            
-            Inventor.Camera cam = _invApp.ActiveView.Camera;
-            times[2] = stopWatch.ElapsedMilliseconds;
-            TransientGeometry tg = _invApp.TransientGeometry;
-            times[3] = stopWatch.ElapsedMilliseconds;
-            cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-            times[4] = stopWatch.ElapsedMilliseconds;
-            cam.Target = tg.CreatePoint();
-            times[5] = stopWatch.ElapsedMilliseconds;
-            cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-            times[6] = stopWatch.ElapsedMilliseconds;
-            cam.ApplyWithoutTransition();
-            times[7] = stopWatch.ElapsedMilliseconds;
-        }*
-        //no active view
-        catch (Exception ex)
-        {
-            MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
-        }
-    }
-}
-//no _invApp
-catch (Exception ex)
-{
-    inventorRunning = false;
-    MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
-}
-}
-inventorFrameMutex.ReleaseMutex();
-stopWatch.Stop();
-//Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
-}
-//for debugging purposes
-
-/*else
-{
-Console.WriteLine("inventor frame mutex block");
-}*
-}*/
-
-
+        //method for updating the inventor cam view via the debugger
         private void InventorFrameDebug(object myObject)
         {
-            debugger.Frame(quat, invertedQuat, unInvertedQuat, camDist);
-            
+            debugger.Frame(quat, invCalQuat, worldQuat, camDist);            
         }
-
-
+        
         //method for updating the inventor cam view
-        private void InventorFrameT(object myObject)//Vector3D a, Double theta)
+        private void InventorFrameT(object myObject)
         {
             //no update over "noise", no update during calibration
-            temp1 = MovementFilter();
-            if (!temp1 || !mpuStable)
+            inventorMovement = MovementFilter();
+            if (!inventorMovement || !mpuStable)
             {
                 return;
             }
             lastLockedQuat = quat;
             
-            //just like option 8 - relative movement!
-            Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
+            Quaternion tempQuat = GetCorrectedQuat();
             Vector3D a = tempQuat.Axis;
-
             double theta = tempQuat.Angle;
             theta *= Math.PI / 180;
             //move object instead of the camera
             theta = -theta;
 
-            double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+            double[] camPos = RotateQuaternion(0, 0, -camDist, a, theta);
             double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
             
             ShowInvFrame(a, theta, camUp);
@@ -1046,7 +798,6 @@ Console.WriteLine("inventor frame mutex block");
             stopWatch.Start();
             if (inventorFrameMutex.WaitOne(0))
             {
-                times[0] = stopWatch.ElapsedMilliseconds;
                 //avoid exceptions if possible before actually updating the frame
                 if (inventorRunning)
                 {
@@ -1058,11 +809,15 @@ Console.WriteLine("inventor frame mutex block");
                         {
                             try
                             {
+                                times[0] = stopWatch.ElapsedMilliseconds;
                                 Inventor.Camera cam = _invApp.ActiveView.Camera;
-                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
-                                cam.Eye.GetPointData(ref eyeArr); //
-                                double[] targetArr = new double[3] { 0, 0, 0 }; //
-                                cam.Target.GetPointData(ref targetArr); //
+                                times[1] = stopWatch.ElapsedMilliseconds;
+                                double[] eyeArr = new double[3] { 0, 0, 0 }; 
+                                cam.Eye.GetPointData(ref eyeArr); 
+                                times[2] = stopWatch.ElapsedMilliseconds;
+                                double[] targetArr = new double[3] { 0, 0, 0 }; 
+                                cam.Target.GetPointData(ref targetArr); 
+                                times[3] = stopWatch.ElapsedMilliseconds;
                                 double[] camVector = new double[3]
                                         {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
                                 camDist = Math.Sqrt(camVector[0] * camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
@@ -1074,9 +829,13 @@ Console.WriteLine("inventor frame mutex block");
                                  */
                                 double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
                                 cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                times[4] = stopWatch.ElapsedMilliseconds;
                                 cam.Target = tg.CreatePoint();
+                                times[5] = stopWatch.ElapsedMilliseconds;
                                 cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                cam.ApplyWithoutTransition();                                
+                                times[6] = stopWatch.ElapsedMilliseconds;
+                                cam.ApplyWithoutTransition();
+                                times[7] = stopWatch.ElapsedMilliseconds;
                             }
                             /*centers, doesn't change scale!
                             { 
@@ -1129,7 +888,9 @@ Console.WriteLine("inventor frame mutex block");
                 }
                 inventorFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
-                //Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
+#if (DEBUGG)
+                Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
+#endif
             }
 #if (DEBUGG)
             else
@@ -1189,7 +950,9 @@ Console.WriteLine("inventor frame mutex block");
                 }
                 inventorFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
+#if (DEBUGG)
                 Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} total: {6}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[5]);
+#endif
             }
 #if (DEBUGG)
             else
@@ -1213,25 +976,21 @@ Console.WriteLine("inventor frame mutex block");
             if (solidFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
-                temp2 = MovementFilter();
-                if (!temp2 || !mpuStable)
+                solidMovement = MovementFilter();
+                if (!solidMovement || !mpuStable)
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
                 }
 
                 lastLockedQuat = quat;
-                Quaternion tempQuat = Quaternion.Multiply(invertedQuat, quat);
-                //tempQuat = Quaternion.Multiply(tempQuat, correctionQuat);
+                Quaternion tempQuat = GetCorrectedQuat();
                 Vector3D a = tempQuat.Axis;
                 double theta = tempQuat.Angle;
-                //double theta = quat.Angle;
                 theta *= Math.PI / 180;
                 //move object instead of the camera
                 theta = -theta;
 
-                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
                 //0 ms
                 times[0] = stopWatch.ElapsedMilliseconds;
                 //avoid exceptions if possible before actually updating the frame
@@ -1247,8 +1006,7 @@ Console.WriteLine("inventor frame mutex block");
                                 solidDoc = true;
                             }
                         }
-                        //avoiding exceptions if possible
-                        
+                        //avoiding exceptions if possible                        
                         if (solidDoc)
                         {
                             times[1] = stopWatch.ElapsedMilliseconds;
@@ -1260,7 +1018,6 @@ Console.WriteLine("inventor frame mutex block");
                                 //4-6 ms somehow solid won't allow this to happen at once
                                 IModelView view = doc.ActiveView;
                                 times[3] = stopWatch.ElapsedMilliseconds;
-                                //TODO: make  solid rotate!
                                 tempQuat.Invert();
                                 double[,] rotation = QuatToRotation(tempQuat);
                                 //TODO: translate :(
@@ -1322,8 +1079,10 @@ Console.WriteLine("inventor frame mutex block");
                 }
                 solidFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
-                //Console.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
-                //    times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[7] - times[6], times[7]);
+#if (DEBUGG)
+                Console.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
+                    times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[7] - times[6], times[7]);
+#endif
             }
 #if (DEBUGG)
             else
@@ -1350,6 +1109,10 @@ Console.WriteLine("inventor frame mutex block");
             }
             return true;
         }
+
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Helper Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
         private void arrAssign(ref double[] arr, double a0, double a1, double a2)
         {
@@ -1443,6 +1206,10 @@ Console.WriteLine("inventor frame mutex block");
             return vect;
         }
 
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Program Flow %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
         //a ping timer is started upon port opening.
         //a ping checks for activeness of inventor (shuts down otherwise)
         //and for serial port (shuts down itself and frame clock otherwise)
@@ -1526,14 +1293,14 @@ Console.WriteLine("inventor frame mutex block");
         private void CloseHandler(object sender, FormClosingEventArgs e)
         {
             this.Invoke(new SimpleDelegate(CloseSequence));
-            formClose = true;
         }
+
 
         private void CloseSequence()
         {
             //TODO: finish close mutex usage.
-            //if (closeLock.TryEnterReadLock(0)) {
             closeLock.EnterWriteLock();
+            closeMutexOwner = "CloseSequence";
             try
             {
                 //timers were definitely already created at this stage
@@ -1545,10 +1312,16 @@ Console.WriteLine("inventor frame mutex block");
                 if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
 #endif
 #if (WEB)
-                server.stopServer();                    
+                server.stopServer();
 #endif
-                serialPort1.Close();
-                Console.WriteLine("port closed");
+                //must wait for close before open!
+                //can take a bit of time, but seems to work eventually *most* of the time.
+                if (serialPort1.IsOpen)
+                {
+                    serialPort1.Close();
+                    Console.WriteLine("port closed");
+                }
+
                 synced = false;
                 serialCount = 0;
                 using (StreamWriter sw = System.IO.File.CreateText(path))
@@ -1558,21 +1331,149 @@ Console.WriteLine("inventor frame mutex block");
             }
             finally
             {
-                //closeLock.ExitReadLock();
                 closeLock.ExitWriteLock();
             }
-
-            //}
-
         }
 
+
+        private void comboBoxPorts_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            serialComPort = comboBoxPorts.Text;
+        }
+
+        private void comboBoxPorts_DropDown(object sender, EventArgs e)
+        {
+            string[] ports = SerialPort.GetPortNames();
+            comboBoxPorts.Items.Clear();
+            foreach (string port in ports)
+            {
+                comboBoxPorts.Items.Add(port);
+            }
+        }
+
+        private void buttonReconnect_Click(object sender, EventArgs e)
+        {
+            buttonReconnect.Enabled = false;
+            this.BeginInvoke(new SimpleDelegate(delegate
+            {
+
+                try
+                {
+                    if (serialPort1.IsOpen)
+                    {                        
+                        //TODO: can get stuck here!
+                        buttonReconnect.Text = "Closing";
+                        serialPort1.Close();
+                        Console.WriteLine("port closed");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Oh no! can't close port!\n" + ex.ToString());
+                }
+                synced = false;
+                serialCount = 0;
+                OpenPort();
+            }));
+        }
+
+        private void DisableReconnect()
+        {
+            buttonReconnect.Enabled = false;
+        }
+
+        private void EnableReconnect()
+        {
+            buttonReconnect.Enabled = true;
+        }
+
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Calibration %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
         private void buttonCalibrate_Click(object sender, EventArgs e)
         {
             new SimpleDelegate(Calibrate).BeginInvoke(null, null);
         }
 
+        private void buttonCalReset_Click(object sender, EventArgs e)
+        {
+            unInvertedQuat = new Quaternion();
+            invCalQuat = new Quaternion();
+#if (INV)
+            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
+#endif
+#if (SOLID)
+            new TimerDelegate(SolidFrameT).BeginInvoke(null, null, null);
+#endif
+#if (DEBUGGER)
+            debugger.BeginInvoke(new SimpleDelegate(debugger.UpdateDisplayCal));
+#endif
+        }
+
         private void Calibrate()
+        {
+            if (!serialPort1.IsOpen)
+            {
+                return;
+            }
+            unInvertedQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
+            invCalQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
+            invCalQuat.Invert();
+#if (INV)
+            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
+#endif
+#if (SOLID)
+            new TimerDelegate(SolidFrameT).BeginInvoke(null, null, null);
+#endif
+#if (DEBUGGER)
+            debugger.BeginInvoke(new SimpleDelegate(debugger.UpdateDisplayCal));
+#endif
+        }
+
+        public void SetInvQuat(Vector3D tempAxis, double tempTheta)
+        {
+            try
+            {
+                invCalQuat = new Quaternion(tempAxis, tempTheta);
+                unInvertedQuat = new Quaternion(tempAxis, tempTheta);
+                unInvertedQuat.Invert();
+            }
+            catch (InvalidOperationException ex)
+            {
+                invCalQuat = new Quaternion();
+                unInvertedQuat = new Quaternion();
+                unInvertedQuat.Invert();
+            }
+        }
+
+        public void SetCalQuat(Vector3D tempAxis, double tempTheta)
+        {
+            try
+            {
+                invCalQuat = new Quaternion(tempAxis, tempTheta);
+                invCalQuat.Invert();
+                unInvertedQuat = new Quaternion(tempAxis, tempTheta);
+            }
+            catch (InvalidOperationException ex)
+            {
+                invCalQuat = new Quaternion();
+                invCalQuat.Invert();
+                unInvertedQuat = new Quaternion();
+            }
+        }
+
+        public Quaternion GetInvQuat()
+        {
+            return invCalQuat;
+        }
+
+        public Quaternion GetCalQuat()
+        {
+            return unInvertedQuat;
+        }     
+
+        private void WorldCalibrate()
         {
             if (!serialPort1.IsOpen)
             {
@@ -1591,9 +1492,7 @@ Console.WriteLine("inventor frame mutex block");
             ///correctionQuat = new Quaternion(quat.Axis, -quat.Angle);
             ////TODO: make software calibration work
             //invertedQuat = new Quaternion(quat.Axis, quat.Angle);
-            unInvertedQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
-            invertedQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
-            invertedQuat.Invert();
+            worldQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
             mpuStable = true;
 #if (INV)
             new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
@@ -1603,86 +1502,25 @@ Console.WriteLine("inventor frame mutex block");
 #endif
         }
 
-        public void SetInvQuat(Vector3D tempAxis, double tempTheta)
+        public Quaternion GetWorldQuat()
         {
-            try
-            {
-                invertedQuat = new Quaternion(tempAxis, tempTheta);
-                unInvertedQuat = new Quaternion(tempAxis, tempTheta);
-                unInvertedQuat.Invert();
-            }
-            catch (InvalidOperationException ex)
-            {
-                invertedQuat = new Quaternion();
-                unInvertedQuat = new Quaternion();
-                unInvertedQuat.Invert();
-            }
+            return worldQuat;
         }
 
-        public void SetCalQuat(Vector3D tempAxis, double tempTheta)
+        private void buttonSetVirWorld_Click(object sender, EventArgs e)
         {
-            try
-            {
-                invertedQuat = new Quaternion(tempAxis, tempTheta);
-                invertedQuat.Invert();
-                unInvertedQuat = new Quaternion(tempAxis, tempTheta);
-            }
-            catch (InvalidOperationException ex)
-            {
-                invertedQuat = new Quaternion();
-                invertedQuat.Invert();
-                unInvertedQuat = new Quaternion();
-            }
-
-
+            new SimpleDelegate(WorldCalibrate).BeginInvoke(null, null);
         }
 
-        public Quaternion GetInvQuat()
+        private void buttonResetVirWorld_Click(object sender, EventArgs e)
         {
-            return invertedQuat;
+            worldQuat = new Quaternion();
         }
 
-        public Quaternion GetCalQuat()
+        private void checkBoxCalNum2_CheckedChanged(object sender, EventArgs e)
         {
-            return unInvertedQuat;
+            calAlgNum2 = !calAlgNum2;
         }
-
-        private void comboBoxPorts_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            serialComPort = comboBoxPorts.Text;
-        }
-
-        private void buttonReconnect_Click(object sender, EventArgs e)
-        {
-            this.BeginInvoke(new SimpleDelegate(delegate
-            {
-                try
-                {
-                    serialPort1.Close();
-                    Console.WriteLine("port closed");
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Oh no! can't close port!\n" + ex.ToString());
-                }
-                synced = false;
-                serialCount = 0;
-                OpenPort();
-            }));
-        }
-
-
-        public void setRotationSelect(int selection)
-        {
-            rotationSelect = selection;
-        }
-
-        public int getRotationSelect()
-        {
-            return rotationSelect;
-        }
-
-
     }
 }
 

@@ -3,11 +3,12 @@
     "configurations": [
 
         {
-            "name": "Launch index.html",
+            "name": "Launch player.html",
             "type": "chrome",
             "request": "launch",
             "sourceMaps": true,
-            "file": "${workspaceRoot}/index.html"
+            "file": "${workspaceRoot}/player.html"
         }
     ]
 }
+//the interesting parts are in player-webgl.js

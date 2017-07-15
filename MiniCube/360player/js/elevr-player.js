@@ -97,28 +97,7 @@ function runEleVRPlayer() {
 
   webGL.initWebGL();
 
-  connection = new WebSocket('ws://127.0.0.1:8090');
-  connection.binaryType = 'arraybuffer';
-
-  connection.onmessage = function (event) {
-    // Create a data view of it
-    var data = event.data;
-    var view = new DataView(data);   
-    // Read the bits as a float; note that by doing this, we're implicitly
-    // converting it from a 32-bit float into JavaScript's native 64-bit double
-    var X = view.getFloat32(0);
-    var Y = view.getFloat32(4);
-    var Z = view.getFloat32(8);
-    var W = view.getFloat32(12);
-    // Done
-    cubeOrientation = new Float32Array([X, Y, Z, W]);
-    gotQuat = true;
-  };
-
-  connection.onopen = function () {
-    connected = true;
-    connection.send('connected');
-  };
+  connectCubeServer();
 
   if (webGL.gl) {
     webGL.gl.clearColor(0.0, 0.0, 0.0, 0.0);
@@ -152,6 +131,35 @@ function runEleVRPlayer() {
   initFromSettings(window.location.hash || window.location.search);
 
   called.runEleVRPlayer = true;
+}
+
+function connectCubeServer() {
+  connection = new WebSocket('ws://127.0.0.1:8090');
+  connection.binaryType = 'arraybuffer';
+
+  connection.onmessage = function (event) {
+    // Create a data view of it
+    var data = event.data;
+    var view = new DataView(data);   
+    // Read the bits as a float; note that by doing this, we're implicitly
+    // converting it from a 32-bit float into JavaScript's native 64-bit double
+    var X = view.getFloat32(0);
+    var Y = view.getFloat32(4);
+    var Z = view.getFloat32(8);
+    var W = view.getFloat32(12);
+    // Done
+    cubeOrientation = new Float32Array([X, Y, Z, W]);
+    gotQuat = true;
+  };
+
+  connection.onopen = function () {
+    connected = true;
+    connection.send('connected');
+  };
+
+    connection.onclose = function () {
+    connected = false;
+  };
 }
 
 function initFromSettings(newSettings) {
