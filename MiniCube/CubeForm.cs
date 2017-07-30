@@ -27,9 +27,9 @@
 //using System.Linq;
 
 //#define DEBUGGER    //works instead of inventor frame!
-#define DEBUGG      //show mutex blocks
-#define INV
-#define SOLID
+//#define DEBUGG      //show mutex blocks
+//#define INV
+//#define SOLID
 #define WEB
 
 
@@ -1298,7 +1298,7 @@ namespace MiniCube
 
         private void CloseSequence()
         {
-            //TODO: finish close mutex usage.
+            //TODO: finish close mutex usage. (open/close ports)
             closeLock.EnterWriteLock();
             closeMutexOwner = "CloseSequence";
             try

@@ -8,6 +8,7 @@ using System.Threading;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.IO;
+using System.Diagnostics;
 
 namespace MiniCube
 {
@@ -19,6 +20,11 @@ namespace MiniCube
         private bool notTimedOut;
         private CubeForm cube;
         private ASCIIEncoding asciiEnco;
+#if (DEBUG)
+        Stopwatch serverWatch = new Stopwatch();
+        long lastTime = 0;
+#endif
+
 
         public Server(CubeForm passedCube)
         {
@@ -63,6 +69,9 @@ namespace MiniCube
             NetworkStream stream = client.GetStream();
             
             Handshaker(client, stream);
+#if (DEBUG)
+            serverWatch.Restart();
+#endif
             Interact(client, stream);
                         
             stream.Flush();
@@ -114,7 +123,16 @@ namespace MiniCube
             Byte[] decoded;
             while (true && notTimedOut)
             {
-                while (!stream.DataAvailable && notTimedOut) ;
+                while (!stream.DataAvailable && notTimedOut)
+                {
+                    //don't waste all CPU in vain
+                    System.Threading.Thread.Sleep(1);
+                }
+#if (DEBUG)
+                Debug.WriteLine("got getQuat after: {0} milisecs from previous", serverWatch.ElapsedMilliseconds - lastTime);
+                lastTime = serverWatch.ElapsedMilliseconds;
+#endif
+
                 //TODO: wait to complete the data
                 //read data from client
 
