@@ -42,8 +42,8 @@ namespace MiniCube
         private void listeningToclients()
         {
             tcpListn.Start();
-            Console.WriteLine("Server started!");
-            Console.WriteLine("Waiting for clients...");
+            Debug.WriteLine("Server started!");
+            Debug.WriteLine("Waiting for clients...");
             while (this.isServerListening)
             {
                 try
@@ -64,7 +64,7 @@ namespace MiniCube
         private void handleClient(object clientObj)
         {
             TcpClient client = (TcpClient)clientObj;
-            Console.WriteLine("Client connected!");
+            Debug.WriteLine("Client connected!");
 
             NetworkStream stream = client.GetStream();
             
@@ -149,16 +149,16 @@ namespace MiniCube
                             //stream.Read(junk, 0, junk.Length);
                             if (bytes[0] == 136)
                             {
-                                Console.WriteLine("Client dissconnected!");
+                                Debug.WriteLine("Client dissconnected!");
                                 break;
                             }
-                            Console.WriteLine("Unhandled opcode! first byte is {0}", bytes[0]);
+                            Debug.WriteLine("Unhandled opcode! first byte is {0}", bytes[0]);
                             break;
                         }
                         messageLength = bytes[1] & 127;
                         if (messageLength > 126)
                         {
-                            Console.WriteLine("message too long!");
+                            Debug.WriteLine("message too long!");
                             break;
                         }
                         stream.Read(mask, 0, mask.Length);
@@ -181,7 +181,7 @@ namespace MiniCube
                         decoded[i] = (Byte)(data[i] ^ mask[i % 4]);
                     }
                     String dataString = asciiEnco.GetString(decoded);
-                    //Console.WriteLine(dataString);
+                    //Debug.WriteLine(dataString);
                     if (dataString == "getQuat")
                     {
                         SendQuat(stream);
@@ -195,7 +195,7 @@ namespace MiniCube
             this.isServerListening = false;
             tcpListn.Stop();
             notTimedOut = false;
-            Console.WriteLine("Server stoped!");
+            Debug.WriteLine("Server stoped!");
         }
 
         public void SendQuat(NetworkStream stream)

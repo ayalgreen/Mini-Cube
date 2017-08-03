@@ -155,12 +155,12 @@ namespace MiniCube
             Console.WriteLine("Initializing...");
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(CloseHandler);
 #if (INV)
-            Console.WriteLine("Inventor...");
+            Debug.WriteLine("Inventor...");
             StartInventor();
 #endif
 
 #if (SOLID)
-            Console.WriteLine("Solid...");
+            Debug.WriteLine("Solid...");
             StartSolid();
 #endif
 
@@ -170,7 +170,7 @@ namespace MiniCube
 #endif
 
 #if (DEBUGGER)
-            Console.WriteLine("Enter Debugg Mode!");
+            Debug.WriteLine("Enter Debugg Mode!");
             debugger = new DebugForm(this);
 #endif
 
@@ -181,11 +181,11 @@ namespace MiniCube
             {
                 comboBoxPorts.Items.Add(port);
             }
-            Console.WriteLine("Load config...");
+            Debug.WriteLine("Load config...");
             LoadConfig();
-            Console.WriteLine("Set timers...");
+            Debug.WriteLine("Set timers...");
             SetTimers();
-            Console.WriteLine("Opening port...");
+            Debug.WriteLine("Opening port...");
             OpenPort();
 
             //OpenBluetooth();
@@ -324,7 +324,7 @@ namespace MiniCube
                     //enable wait to avoid multi clicking and exceptions?
                     /*if (!newThread.Join(TimeSpan.FromSeconds(20)))
                     {
-                        Console.WriteLine("could not open port for over 20 seconds!");
+                        Debug.WriteLine("could not open port for over 20 seconds!");
                     } */
 
                     if (portError)
@@ -360,11 +360,11 @@ namespace MiniCube
                 serialPort1.Open();
                 if (serialPort1.IsOpen)
                 {
-                    Console.WriteLine("Port opened.");
+                    Debug.WriteLine("Port opened.");
                 }
                 else
                 {
-                    Console.WriteLine("Could not open port");
+                    Debug.WriteLine("Could not open port");
                 }                
                 pingTimerT.Change(pingTimerInterval, pingTimerInterval);
             }
@@ -388,7 +388,7 @@ namespace MiniCube
                 if (serialPort1.IsOpen)
                 {
                     serialPort1.Close();
-                    Console.WriteLine("port closed");
+                    Debug.WriteLine("port closed");
                 }                
             }
             //if can't open port
@@ -444,7 +444,7 @@ namespace MiniCube
             }
             catch (System.PlatformNotSupportedException ex)
             {
-                Console.WriteLine("Can't find bluetooth module! Please make sure Bluetooth module is connected and activated");
+                Debug.WriteLine("Can't find bluetooth module! Please make sure Bluetooth module is connected and activated");
             }
             finally
             {
@@ -513,7 +513,7 @@ namespace MiniCube
                         while (serialPort1.BytesToRead > 0)
                         {
 
-                            //Console.WriteLine("buffer length {0}", serialPort1.BytesToRead);
+                            //Debug.WriteLine("buffer length {0}", serialPort1.BytesToRead);
                             //TODO only if port isn't closed!
                             byte[] buffer = new byte[serialPort1.BytesToRead];
                             serialPort1.Read(buffer, 0, buffer.Length);
@@ -530,14 +530,14 @@ namespace MiniCube
 #if (DEBUGG)
                     else
                     {
-                        Console.WriteLine("serial port data mutex block {0}", dbgcounter);
+                        Debug.WriteLine("serial port data mutex block {0}", dbgcounter);
                         dbgcounter++;
                     }
 #endif
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Error on serial port data received!" + ex.Message);
+                    Debug.WriteLine("Error on serial port data received!" + ex.Message);
                 }
                 finally
                 {
@@ -564,14 +564,14 @@ namespace MiniCube
                                 if (!synced && ch != '$')
                                 {
                                     //TODO: after long (50 sec) debug break in Stable() (after clicking calibrate) gets deadlocked on this
-                                    Console.Write((char)ch);
+                                    Debug.Write((char)ch);
                                     noSync = true;
                                     continue;  // initial synchronization - also used to resync/realign if needed
                                 }
                                 //noSync doesn't become true after each packet
                                 if (noSync)
                                 {
-                                    Console.WriteLine("Synced!");
+                                    Debug.WriteLine("Synced!");
                                     /*old code:
                                     //if regained sync after calibration, should wait for stabilization, adjust heading, and change view.
                                     if (mpuCalibrating)
@@ -618,7 +618,7 @@ namespace MiniCube
 #if (DEBUGG)                    
                     else
                     {
-                        Console.WriteLine("synchronizer mutex block");
+                        Debug.WriteLine("synchronizer mutex block");
                     }
 #endif
                 }
@@ -678,7 +678,7 @@ namespace MiniCube
                             {
                                 quatReading = 0;
                                 double[] qrt = quatReadingsTimes;
-                                Console.WriteLine("quat readings: {0} {1} {2} {3} {4} {5} {6} {7} {8}", qrt[1] - qrt[0], 
+                                Debug.WriteLine("quat readings: {0} {1} {2} {3} {4} {5} {6} {7} {8}", qrt[1] - qrt[0], 
                                    qrt[2] - qrt[1], qrt[3] - qrt[2], qrt[4] - qrt[3], qrt[5] - qrt[4], qrt[6] - qrt[5], 
                                    qrt[7] - qrt[6], qrt[8] - qrt[7], qrt[9] - qrt[8]);
                             }*/
@@ -716,7 +716,7 @@ namespace MiniCube
 #if (DEBUGG)
                     else
                     {
-                        Console.WriteLine("packet analyzer mutex block");
+                        Debug.WriteLine("packet analyzer mutex block");
                     }
 #endif
                 }
@@ -889,13 +889,13 @@ namespace MiniCube
                 inventorFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
 #if (DEBUGG)
-                Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
+                Debug.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
 #endif
             }
 #if (DEBUGG)
             else
             {
-                Console.WriteLine("inventor frame mutex block");
+                Debug.WriteLine("inventor frame mutex block");
                 return false;
             }
 #endif
@@ -951,13 +951,13 @@ namespace MiniCube
                 inventorFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
 #if (DEBUGG)
-                Console.WriteLine("inventor: {0} {1} {2} {3} {4} {5} total: {6}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[5]);
+                Debug.WriteLine("inventor: {0} {1} {2} {3} {4} {5} total: {6}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[5]);
 #endif
             }
 #if (DEBUGG)
             else
             {
-                Console.WriteLine("inventor frame mutex block");
+                Debug.WriteLine("inventor frame mutex block");
                 return false;
             }
 #endif
@@ -1080,14 +1080,14 @@ namespace MiniCube
                 solidFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
 #if (DEBUGG)
-                Console.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
+                Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
                     times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[7] - times[6], times[7]);
 #endif
             }
 #if (DEBUGG)
             else
             {
-                Console.WriteLine("solid frame mutex block");
+                Debug.WriteLine("solid frame mutex block");
             }
 #endif
         }
@@ -1319,7 +1319,7 @@ namespace MiniCube
                 if (serialPort1.IsOpen)
                 {
                     serialPort1.Close();
-                    Console.WriteLine("port closed");
+                    Debug.WriteLine("port closed");
                 }
 
                 synced = false;
@@ -1364,7 +1364,7 @@ namespace MiniCube
                         //TODO: can get stuck here!
                         buttonReconnect.Text = "Closing";
                         serialPort1.Close();
-                        Console.WriteLine("port closed");
+                        Debug.WriteLine("port closed");
                     }
                 }
                 catch (Exception ex)

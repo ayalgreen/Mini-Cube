@@ -8,7 +8,7 @@ using System.Text;
 using System.Windows.Forms;
 using System.Windows.Media.Media3D;
 using System.Threading;
-
+using System.Diagnostics;
 
 namespace MiniCube
 {
@@ -227,7 +227,7 @@ namespace MiniCube
             } 
             else
             {
-                Console.WriteLine("Inventor Frame Mutex Block!");
+                Debug.WriteLine("Inventor Frame Mutex Block!");
             }       
         }
 
