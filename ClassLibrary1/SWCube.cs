@@ -54,7 +54,7 @@ namespace SWCube
             using (Microsoft.Win32.RegistryKey rk = baseReg.CreateSubKey(keyPath))
             {
                 rk.SetValue(null, 1); // Load at startup
-                rk.SetValue("Title", "My SwAddin"); // Title
+                rk.SetValue("Title", "SW Cube"); // Title
                 rk.SetValue("Description", "All your pixels belong to us!"); // Description
             }
         }
@@ -77,8 +77,8 @@ namespace SWCube
             orientation = swMathUtility.CreateTransform(new double[1]);
             this.UISetup();
             _swApp.SendMsgToUser2("timer started",
-(int)swMessageBoxIcon_e.swMbInformation,
-(int)swMessageBoxBtn_e.swMbOk);
+                (int)swMessageBoxIcon_e.swMbInformation,
+                (int)swMessageBoxBtn_e.swMbOk);
             return true;
         }
 
@@ -90,7 +90,6 @@ namespace SWCube
 
         private void UISetup()
         {
-
             solidFrameInterval = (int)(1000 / sFPS);
             solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, solidFrameInterval, solidFrameInterval);
         }
