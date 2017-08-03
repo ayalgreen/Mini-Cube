@@ -28,6 +28,8 @@ Project("{E24C65DC-7377-472B-9ABA-BC803B73C61A}") = "360player", "MiniCube\360pl
 		SlnRelativePath = "MiniCube\360player\"
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SWCube", "ClassLibrary1\SWCube.csproj", "{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -52,6 +54,14 @@ Global
 		{1F62FA21-1520-4D5E-BCEA-3521CA36D449}.Release|Any CPU.Build.0 = Debug|Any CPU
 		{1F62FA21-1520-4D5E-BCEA-3521CA36D449}.Release|x86.ActiveCfg = Debug|Any CPU
 		{1F62FA21-1520-4D5E-BCEA-3521CA36D449}.Release|x86.Build.0 = Debug|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Debug|x86.Build.0 = Debug|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Release|x86.ActiveCfg = Release|Any CPU
+		{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
