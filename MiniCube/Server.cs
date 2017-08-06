@@ -31,6 +31,7 @@ namespace MiniCube
             cube = passedCube;
             asciiEnco = new ASCIIEncoding();
             notTimedOut = true;
+            //ip = 127.0.0.1
             tcpListn = new TcpListener(IPAddress.Any, 8090);
             listenThread = new Thread(new ThreadStart(listeningToclients));
             this.isServerListening = true;
@@ -68,20 +69,28 @@ namespace MiniCube
 
             NetworkStream stream = client.GetStream();
             
-            Handshaker(client, stream);
+            bool isWebSocket = Handshaker(client, stream);
 #if (DEBUG)
             serverWatch.Restart();
 #endif
-            Interact(client, stream);
-                        
+            if (isWebSocket)
+            {
+                InteractWebSocket(client, stream);
+            }
+            else
+            {
+                InteractSimple(client, stream);
+            }
+
             stream.Flush();
             stream.Close();
             client.Close(); //close the client
         }
 
         //TODO: add timeout
-        private void Handshaker(TcpClient client, NetworkStream stream)
+        private bool Handshaker(TcpClient client, NetworkStream stream)
         {
+            bool isWebSocket = false;
             StringBuilder clientMessage = new StringBuilder("");
 
             while (true && notTimedOut)
@@ -108,12 +117,20 @@ namespace MiniCube
                                     + Environment.NewLine
                         + Environment.NewLine);
                     stream.Write(response, 0, response.Length);
+                    isWebSocket = true;
                     break;
                 }
+                else if (new Regex("^Solid").IsMatch(dataString))
+                {
+                    clientMessage.Clear();
+                    Byte[] response = Encoding.UTF8.GetBytes("Connected" + Environment.NewLine);
+                    stream.Write(response, 0, response.Length);
+                }
             }
+            return isWebSocket;
         }
               
-        private void Interact(TcpClient client, NetworkStream stream)
+        private void InteractWebSocket(TcpClient client, NetworkStream stream)
         {
             //TODO: support long messages?
             bool header = true;
@@ -184,7 +201,41 @@ namespace MiniCube
                     //Debug.WriteLine(dataString);
                     if (dataString == "getQuat")
                     {
-                        SendQuat(stream);
+                        SendQuat(stream, true);
+                    }
+                }
+            }
+        }
+
+        private void InteractSimple(TcpClient client, NetworkStream stream)
+        {
+            int messageLength = 10;
+            Byte[] data;
+            while (true && notTimedOut)
+            {
+                while (!stream.DataAvailable && notTimedOut)
+                {
+                    //don't waste all CPU in vain
+                    System.Threading.Thread.Sleep(1);
+                }
+#if (DEBUG)
+                Debug.WriteLine("got getQuat after: {0} milisecs from previous", serverWatch.ElapsedMilliseconds - lastTime);
+                lastTime = serverWatch.ElapsedMilliseconds;
+#endif
+                //TODO: wait to complete the data
+                if (client.Available >= messageLength)
+                {
+                    data = new Byte[messageLength];
+                    stream.Read(data, 0, messageLength);
+                    String dataString = asciiEnco.GetString(data);
+                    //Debug.WriteLine(dataString);
+                    if (dataString == "getQuat000")
+                    {
+                        SendQuat(stream, false);
+                    }
+                    else if (dataString == "Disconnet0")
+                    {
+                        break;
                     }
                 }
             }
@@ -198,21 +249,26 @@ namespace MiniCube
             Debug.WriteLine("Server stoped!");
         }
 
-        public void SendQuat(NetworkStream stream)
+        public void SendQuat(NetworkStream stream, bool isWebSocket)
         {
             float[] quat = cube.GetCorrectedQuatFloats();
             MemoryStream memStream = new MemoryStream();
-            Byte[] headerBytes = new Byte[2] { (Byte)130, (Byte)16 };
-            memStream.Write(headerBytes, 0, headerBytes.Length);
+
             Byte[] XBytes = BitConverter.GetBytes(quat[0]);
             Byte[] YBytes = BitConverter.GetBytes(quat[1]);
             Byte[] ZBytes = BitConverter.GetBytes(quat[2]);
             Byte[] WBytes = BitConverter.GetBytes(quat[3]);
-            //taking care of Endianess js conventation
-            Array.Reverse(XBytes);
-            Array.Reverse(YBytes);
-            Array.Reverse(ZBytes);
-            Array.Reverse(WBytes);
+
+            if (isWebSocket)
+            {
+                Byte[] headerBytes = new Byte[2] { (Byte)130, (Byte)16 };
+                memStream.Write(headerBytes, 0, headerBytes.Length);
+                //taking care of Endianess js conventation
+                Array.Reverse(XBytes);
+                Array.Reverse(YBytes);
+                Array.Reverse(ZBytes);
+                Array.Reverse(WBytes);
+            }
 
             memStream.Write(XBytes, 0, 4);
             memStream.Write(YBytes, 0, 4);
