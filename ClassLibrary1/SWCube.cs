@@ -25,6 +25,7 @@ namespace SWCube
         String CONNECT_MESSAGE = "Solid";
         String GET_QUAT_MESSAGE = "getQuat000";
         String DISCONNECT_MESSAGE = "Disconnect0";
+        String CONNECTED_REPLY = "Connected";
 
         //Delegates
         public delegate void SimpleDelegate();
@@ -45,16 +46,14 @@ namespace SWCube
         bool solidMovement = false;
 
         //static vars
-        bool mpuStable = true;
-        Quaternion lastLockedQuat = new Quaternion(0, 0, 0, 1);
-        Quaternion quat = new Quaternion(0, 0, 0, 1);
-        Quaternion invCalQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
-        Quaternion worldQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
-        bool calAlgNum2 = false;
+        Quaternion displayQuat;
+        bool quatUpdated = false;
+
 
         //comm vars
         TcpClient client;
         NetworkStream clientStream;
+        bool clientConnected = false;
 
         [ComRegisterFunction()]
         private static void ComRegister(Type t)
@@ -137,6 +136,7 @@ namespace SWCube
                     responseData = System.Text.Encoding.ASCII.GetString(data, 0, bytes);
                     if (responseData == "Connected")
                     {
+                        clientConnected = true;
                         break;
                     }
                     else
@@ -162,23 +162,14 @@ namespace SWCube
         private void SolidFrame(object myObject, EventArgs myEventArgs)//Vector3D a, Double theta)
         {
             Debug.WriteLine("Timer Tick");
-            Stopwatch stopWatch = new Stopwatch();
-            double[] times = new double[8];
-            stopWatch.Start();
-            //no update over "noise", no update during calibration
-            solidMovement = MovementFilter();
-            if (!solidMovement || !mpuStable)
+            if (!clientConnected)
             {
                 return;
             }
-            lastLockedQuat = quat;
-            Quaternion tempQuat = GetCorrectedQuat();
-            Vector3D a = tempQuat.Axis;
-            double theta = tempQuat.Angle;
-            theta *= Math.PI / 180;
-            //move object instead of the camera
-            theta = -theta;
-
+            Stopwatch stopWatch = new Stopwatch();
+            double[] times = new double[8];
+            stopWatch.Start();
+            GetCorrectedQuat();
             //0 ms
             times[0] = stopWatch.ElapsedMilliseconds;
             try
@@ -203,8 +194,7 @@ namespace SWCube
                         //4-6 ms somehow solid won't allow this to happen at once
                         IModelView view = doc.ActiveView;
                         times[3] = stopWatch.ElapsedMilliseconds;
-                        tempQuat.Invert();
-                        double[,] rotation = QuatToRotation(tempQuat);
+                        double[,] rotation = QuatToRotation(displayQuat);
                         //TODO: translate :(
                         //15-23 ms no need to translate just yet!
                         //MathTransform translate = view.Translation3;
@@ -269,6 +259,7 @@ namespace SWCube
 
 
         //method for updating the solid cam view
+        /*
         private void SolidFrameT(object myObject)//Vector3D a, Double theta)
         {
             if (solidFrameMutex.WaitOne(0))
@@ -320,45 +311,39 @@ namespace SWCube
                 //Control.Invoke();
                 solidFrameMutex.ReleaseMutex();
             }
-        }
+        }*/
 
         //method for getting the corrected current quat
-        public Quaternion GetCorrectedQuat()
+        public void GetCorrectedQuat()
         {
-            //tempQuat = R(C^-1)
-            Quaternion tempQuat = Quaternion.Multiply(invCalQuat, quat);
-            if (calAlgNum2)
+            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_QUAT_MESSAGE);
+            //Debug.WriteLine("1");
+            clientStream.Write(data, 0, data.Length);
+            //Debug.WriteLine("2");
+            int readBytes = 0;
+            while (readBytes < 17)
             {
-                //World view correction:
-                //tempQuat = (C^-1)R
-                tempQuat = Quaternion.Multiply(quat, invCalQuat);
-                //tempQuat = W(C^-1)R
-                tempQuat = Quaternion.Multiply(tempQuat, worldQuat);
-                Quaternion invWorldQuat = new Quaternion(worldQuat.X, worldQuat.Y, worldQuat.Z, worldQuat.W);
-                invWorldQuat.Invert();
-                //tempQuat = W(C^-1)R(W^-1)
-                tempQuat = Quaternion.Multiply(invWorldQuat, tempQuat);
+                //TODO: wait to complete the data
+                //Debug.WriteLine("3");
+                data = new Byte[17];
+                //Debug.WriteLine("31");
+                // Read batch of the TcpServer response bytes.
+                Int32 bytes = clientStream.Read(data, readBytes, data.Length-readBytes);
+                //Debug.WriteLine("32");
+                readBytes += bytes;
+                //Debug.WriteLine("33");
             }
-            return tempQuat;
+            //Debug.WriteLine("4");
+            quatUpdated = BitConverter.ToBoolean(data, 0);
+            float X = BitConverter.ToSingle(data, 1);
+            float Y = BitConverter.ToSingle(data, 5);
+            float Z = BitConverter.ToSingle(data, 9);
+            float W = BitConverter.ToSingle(data, 13);
+            displayQuat = new Quaternion(X, Y, Z, W);
+            displayQuat.Invert();
+            //Debug.WriteLine("5");
         }
 
-        //TODO: make a good filter.
-        //function that checks whether a an actual movement of the cube was made
-        private bool MovementFilter()
-        {
-            double diffTheta = lastLockedQuat.Angle - quat.Angle;
-            Vector3D diffVector = Vector3D.Subtract(lastLockedQuat.Axis, quat.Axis);
-            if (!(diffTheta > MAX_THETA_DIFF_UNLOCK || diffVector.Length > MAX_AXIS_DIFF_UNLOCK))
-            {
-                ////TODO: dis/re-enable timers?
-                ////TODO: recalibrate to prevent stationary drift of cube over time?
-                //avoid jumping due to drifting
-                lastLockedQuat = quat;
-                //inventorFrameTimer.Stop();
-                return false;
-            }
-            return true;
-        }
 
         public double[,] QuatToRotation(Quaternion a)
         {

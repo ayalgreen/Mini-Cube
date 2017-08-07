@@ -770,8 +770,7 @@ namespace MiniCube
         private void InventorFrameT(object myObject)
         {
             //no update over "noise", no update during calibration
-            inventorMovement = MovementFilter();
-            if (!inventorMovement || !mpuStable)
+            if (!ShouldUpdate())
             {
                 return;
             }
@@ -976,8 +975,7 @@ namespace MiniCube
             if (solidFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
-                solidMovement = MovementFilter();
-                if (!solidMovement || !mpuStable)
+                if (!ShouldUpdate())
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
@@ -1105,6 +1103,15 @@ namespace MiniCube
                 //avoid jumping due to drifting
                 lastLockedQuat = quat;
                 //inventorFrameTimer.Stop();
+                return false;
+            }
+            return true;
+        }
+
+        public bool ShouldUpdate()
+        {
+            if (!MovementFilter() || !mpuStable)
+            {
                 return false;
             }
             return true;

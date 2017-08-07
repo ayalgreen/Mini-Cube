@@ -32,7 +32,8 @@ namespace MiniCube
             asciiEnco = new ASCIIEncoding();
             notTimedOut = true;
             //ip = 127.0.0.1
-            tcpListn = new TcpListener(IPAddress.Any, 8090);
+            IPAddress localAddr = IPAddress.Parse("127.0.0.1");
+            tcpListn = new TcpListener(localAddr, 8090);//IPAddress.Any, 8090);
             listenThread = new Thread(new ThreadStart(listeningToclients));
             this.isServerListening = true;
             listenThread.Start();
@@ -58,7 +59,6 @@ namespace MiniCube
 
                 }
             }
-
         }
 
         //client handler
@@ -123,8 +123,9 @@ namespace MiniCube
                 else if (new Regex("^Solid").IsMatch(dataString))
                 {
                     clientMessage.Clear();
-                    Byte[] response = Encoding.UTF8.GetBytes("Connected" + Environment.NewLine);
+                    Byte[] response = Encoding.UTF8.GetBytes("Connected");
                     stream.Write(response, 0, response.Length);
+                    break;
                 }
             }
             return isWebSocket;
@@ -269,6 +270,12 @@ namespace MiniCube
                 Array.Reverse(ZBytes);
                 Array.Reverse(WBytes);
             }
+            else
+            {
+                bool shldupdate = cube.ShouldUpdate();
+                Byte[] shouldUpdate = BitConverter.GetBytes(shldupdate);
+                memStream.Write(shouldUpdate, 0, shouldUpdate.Length);
+            }
 
             memStream.Write(XBytes, 0, 4);
             memStream.Write(YBytes, 0, 4);
@@ -276,6 +283,7 @@ namespace MiniCube
             memStream.Write(WBytes, 0, 4);
             Byte[] response = memStream.ToArray();
             stream.Write(response, 0, response.Length);
+            //Debug.WriteLine("wrote response");
         }
 
     }
