@@ -272,9 +272,9 @@ namespace MiniCube
             }
             else
             {
-                bool shldupdate = cube.ShouldUpdate();
-                Byte[] shouldUpdate = BitConverter.GetBytes(shldupdate);
-                memStream.Write(shouldUpdate, 0, shouldUpdate.Length);
+                bool mpuStable = cube.MPUStable();
+                Byte[] stable = BitConverter.GetBytes(mpuStable);
+                memStream.Write(stable, 0, stable.Length);
             }
 
             memStream.Write(XBytes, 0, 4);

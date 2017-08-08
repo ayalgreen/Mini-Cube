@@ -207,7 +207,7 @@ namespace MiniCube
                         break;
                 }
                 this.BeginInvoke(new CamDelegate(UpdateDisplayCam), camPos, camUp);
-                cube.ShowInvFrame(camPos, camUp);
+                cube.InvFrameDisplay(camPos, camUp);
                 if (breakDisplay)
                 {
                     if (atomicCalc)
@@ -303,7 +303,7 @@ namespace MiniCube
             double[] camPos = cube.RotateQuaternion(0, 0, camDist, a, theta);
             double[] camUp = cube.RotateQuaternion(0, 1, 0, a, theta);
             this.BeginInvoke(new CamDelegate(UpdateDisplayCam), camPos, camUp);
-            cube.ShowInvFrame(camPos, camUp);
+            cube.InvFrameDisplay(camPos, camUp);
             this.BeginInvoke(new SimpleDelegate(UpdateDisplayLabel));
         }
 

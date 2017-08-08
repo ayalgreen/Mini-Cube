@@ -19,18 +19,12 @@
 //(1)(ii)(Rights in Technical Data and Computer Software), as
 //applicable.
 
-
-//using System.Collections.Generic;
-//using System.ComponentModel;
-//using System.Data;
-//using System.Drawing;
-//using System.Linq;
-
+//#define BT
 //#define DEBUGGER    //works instead of inventor frame!
 //#define DEBUGG      //show mutex blocks
 //#define INV
 //#define SOLID
-#define WEB
+#define SERVER
 
 
 using System;
@@ -38,14 +32,14 @@ using System.IO;
 using System.IO.Ports;
 using System.Windows.Forms;
 using System.Windows.Media.Media3D;
-using System.Runtime.InteropServices;
 using Inventor;
+using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
-//using SolidWorks.Interop.swconst;
 using System.Threading;
 //using InTheHand;
 //using InTheHand.Net.Ports;
-//using InTheHand.Net.Bluetooth;
+using InTheHand.Net.Bluetooth;
+using System.Collections.Generic;
 using InTheHand.Net.Sockets;
 using System.Diagnostics;
 
@@ -73,40 +67,18 @@ namespace MiniCube
         public delegate void DataProcessDelegate(byte[] buffer);
         public delegate void CameraLockDelegate(Vector3D a, double theta);
 
-        //inventor vars
-        Inventor.Application _invApp;
-        TransientGeometry tg;
-        bool _inventorStartedByForm = false;
-        bool inventorRunning = false;
-        int inventorFrameInterval;
-        System.Threading.Timer inventorFrameTimerT;
-        bool inventorFrameTimerTEnabled = false;
-        static Mutex inventorFrameMutex = new Mutex();
-        double camDist = 100;
-        bool inventorMovement = false;
-
-        //solid vars
-        SldWorks _swApp;
-        MathUtility swMathUtility;
-        MathTransform orientation;
-        bool _solidStartedByForm = false;
-        bool solidRunning = false;
-        bool solidDoc = false;
-        int solidFrameInterval;
-        System.Threading.Timer solidFrameTimerT;
-        bool solidFrameTimerTEnabled = false;
-        static Mutex solidFrameMutex = new Mutex();
-        bool solidMovement = false;
-
-        //server forr web apps
+        //TCP server for web apps and plugins 
         Server server;
-        bool webStarted = false;
+        bool serverStarted = false;
 
         //comm vars
-        BluetoothDeviceInfo bluetoothDevice;
-        Guid mUUID = new Guid("00001101-0000-1000-8000-00805F9B34FB");
         SerialPort serialPort1 = new SerialPort();
         bool portError = false;
+
+#if (BT)        
+        BluetoothDeviceInfo bluetoothDevice;
+        Guid mUUID = new Guid("00001101-0000-1000-8000-00805F9B34FB");        
+#endif
 
         //comm protocol vars
         char[] teapotPacket = new char[14];  // InvenSense Teapot packet
@@ -145,6 +117,34 @@ namespace MiniCube
         DebugForm debugger;
         String closeMutexOwner = "";
 
+        //inventor vars
+        Inventor.Application _invApp;
+        TransientGeometry tg;
+        bool _inventorStartedByForm = false;
+        bool inventorRunning = false;
+        int inventorFrameInterval;
+        System.Threading.Timer inventorFrameTimerT;
+        bool inventorFrameTimerTEnabled = false;
+        static Mutex inventorFrameMutex = new Mutex();
+        double camDist = 100;
+        bool inventorMovement = false;
+
+#if (SOLID)
+        //solid vars
+        SldWorks _swApp;
+        MathUtility swMathUtility;
+        MathTransform orientation;
+        bool _solidStartedByForm = false;
+        bool solidRunning = false;
+        bool solidDoc = false;
+        int solidFrameInterval;
+        System.Threading.Timer solidFrameTimerT;
+        bool solidFrameTimerTEnabled = false;
+        static Mutex solidFrameMutex = new Mutex();
+        bool solidMovement = false;
+#endif
+
+
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Setup %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -164,9 +164,9 @@ namespace MiniCube
             StartSolid();
 #endif
 
-#if (WEB)
+#if (SERVER)
             server = new Server(this);
-            webStarted = true;
+            serverStarted = true;
 #endif
 
 #if (DEBUGGER)
@@ -174,7 +174,7 @@ namespace MiniCube
             debugger = new DebugForm(this);
 #endif
 
-            ////TODO: make software calibration work
+            //TODO: make software calibration work
             invCalQuat.Invert();
             string[] ports = SerialPort.GetPortNames();
             foreach (string port in ports)
@@ -229,6 +229,7 @@ namespace MiniCube
             }
         }
 
+#if (INV)
         private void StartInventor()
         {
             try
@@ -263,7 +264,9 @@ namespace MiniCube
                 }
             }
         }
+#endif
 
+#if (SOLID)
         private void StartSolid()
         {
             try
@@ -276,15 +279,8 @@ namespace MiniCube
                 try
                 {
                     Type swAppType = Type.GetTypeFromProgID("SldWorks.Application");
-
                     _swApp = (SldWorks)System.Activator.CreateInstance(swAppType);
                     _swApp.Visible = true;
-
-                    //Note: if the Inventor session is left running after this
-                    //form is closed, there will still an be and Inventor.exe 
-                    //running. We will use this Boolean to test in Form1.Designer.cs 
-                    //in the dispose method whether or not the Inventor App should
-                    //be shut down when the form is closed.
                     _solidStartedByForm = true;
                     solidRunning = true;
                 }
@@ -298,6 +294,7 @@ namespace MiniCube
             swMathUtility = (MathUtility)_swApp.GetMathUtility();
             orientation = swMathUtility.CreateTransform(new double[1]);
         }
+#endif
 
         //method for opening a port must be run on UI thread!
         private void OpenPort()
@@ -404,7 +401,7 @@ namespace MiniCube
         }
 
         //TODO: automatic Bluetooth stuff
-        /* Bluetooth
+#if (BT)
         private void OpenBluetooth()
         {
             Thread bluetoothScanner = new Thread(new ThreadStart(BluetoothScan));
@@ -493,7 +490,7 @@ namespace MiniCube
                 //return;
             }
         }
-        */
+#endif
 
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Comm Protocol %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -615,7 +612,7 @@ namespace MiniCube
                             Monitor.Exit(synchronizerLock);
                         }
                     }
-#if (DEBUGG)                    
+#if (DEBUGG)
                     else
                     {
                         Debug.WriteLine("synchronizer mutex block");
@@ -753,24 +750,27 @@ namespace MiniCube
         }
 
 
-        //method for getting the corrected current quat as float array (used for webserver now)
+        //method for getting the corrected current quat as float array (for server)
         public float[] GetCorrectedQuatFloats()
         {
             Quaternion tempQuat = GetCorrectedQuat();
             return new float[4] { (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W};
         }
 
+#if (DEBUGGER)
         //method for updating the inventor cam view via the debugger
         private void InventorFrameDebug(object myObject)
         {
             debugger.Frame(quat, invCalQuat, worldQuat, camDist);            
         }
-        
+#endif
+
+#if (INV)
         //method for updating the inventor cam view
         private void InventorFrameT(object myObject)
         {
             //no update over "noise", no update during calibration
-            if (!ShouldUpdate())
+            if (!MovementFilter() || !mpuStable)
             {
                 return;
             }
@@ -786,11 +786,11 @@ namespace MiniCube
             double[] camPos = RotateQuaternion(0, 0, -camDist, a, theta);
             double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
             
-            ShowInvFrame(a, theta, camUp);
+            InvFrameDisplay(a, theta, camUp);
         }
 
-        //normal use - displaying a frame.
-        public bool ShowInvFrame(Vector3D a, double theta, double[] camUp)
+        //displaying an inventor frame (non debugger).
+        public bool InvFrameDisplay(Vector3D a, double theta, double[] camUp)
         {
             Stopwatch stopWatch = new Stopwatch();
             double[] times = new double[8];
@@ -900,9 +900,10 @@ namespace MiniCube
 #endif
             return true;
         }
+#endif
 
-        //for debugg use - display according to pos and up
-        public bool ShowInvFrame(double[] camPos, double[] camUp)
+        //for debugger use - display according to pos and up
+        public bool InvFrameDisplay(double[] camPos, double[] camUp)
         {
             Stopwatch stopWatch = new Stopwatch();
             double[] times = new double[8];
@@ -963,9 +964,8 @@ namespace MiniCube
             return true;
         }
 
-
+#if (SOLID)
         //method for updating the solid cam view
-        //TODO:possibly merge with inventor frame.
         private void SolidFrameT(object myObject)//Vector3D a, Double theta)
         {
             Stopwatch stopWatch = new Stopwatch();
@@ -975,12 +975,11 @@ namespace MiniCube
             if (solidFrameMutex.WaitOne(0))
             {
                 //no update over "noise", no update during calibration
-                if (!ShouldUpdate())
+                if (!MovementFilter() || !mpuStable)
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
                 }
-
                 lastLockedQuat = quat;
                 Quaternion tempQuat = GetCorrectedQuat();
                 Vector3D a = tempQuat.Axis;
@@ -1077,44 +1076,35 @@ namespace MiniCube
                 }
                 solidFrameMutex.ReleaseMutex();
                 stopWatch.Stop();
-#if (DEBUGG)
                 Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
                     times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[7] - times[6], times[7]);
-#endif
             }
-#if (DEBUGG)
             else
             {
                 Debug.WriteLine("solid frame mutex block");
             }
-#endif
         }
+#endif
 
         //TODO: make a good filter.
-        //function that checks whether a an actual movement of the cube was made
-        private bool MovementFilter()
+        //function that checks whether an actual movement of the cube was made
+        public bool MovementFilter()
         {
             double diffTheta = lastLockedQuat.Angle - quat.Angle;
             Vector3D diffVector = Vector3D.Subtract(lastLockedQuat.Axis, quat.Axis);
             if (!(diffTheta > MAX_THETA_DIFF_UNLOCK || diffVector.Length > MAX_AXIS_DIFF_UNLOCK))
             {
-                ////TODO: dis/re-enable timers?
-                ////TODO: recalibrate to prevent stationary drift of cube over time?
+                ////TODO: recalibrate to prevent stationary drift of cube over time
                 //avoid jumping due to drifting
                 lastLockedQuat = quat;
-                //inventorFrameTimer.Stop();
                 return false;
             }
             return true;
         }
 
-        public bool ShouldUpdate()
+        public bool MPUStable()
         {
-            if (!MovementFilter() || !mpuStable)
-            {
-                return false;
-            }
-            return true;
+            return mpuStable;
         }
 
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1251,7 +1241,20 @@ namespace MiniCube
                 }
             }
 #endif
-            if (!solidRunning && !inventorRunning && !webStarted)
+#if (SOLID)
+#if (INV)
+            if (!solidRunning && !inventorRunning && !serverStarted)
+#else
+            if (!solidRunning && !serverStarted)
+#endif
+#else
+#if (INV)
+            if (!inventorRunning && !serverStarted)
+#else
+            if (!serverStarted)
+#endif
+                if (!inventorRunning && !serverStarted)
+#endif
             {
                 this.BeginInvoke(new SimpleDelegate(delegate
                 {
@@ -1318,7 +1321,7 @@ namespace MiniCube
 #if (SOLID)
                 if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
 #endif
-#if (WEB)
+#if (SERVER)
                 server.stopServer();
 #endif
                 //must wait for close before open!
@@ -1478,8 +1481,9 @@ namespace MiniCube
         public Quaternion GetCalQuat()
         {
             return unInvertedQuat;
-        }     
+        }
 
+        //TODO: make world calibration work
         private void WorldCalibrate()
         {
             if (!serialPort1.IsOpen)
@@ -1494,11 +1498,6 @@ namespace MiniCube
             //wait for re-sync  
             while (noSync) ;
             Thread.Sleep(3000);*/
-            //Quaternion tempQuat = new Quaternion(quat.Axis, -quat.Angle); 
-            //correctionQuat = Quaternion.Multiply(tempQuat, adjustmentQuat);
-            ///correctionQuat = new Quaternion(quat.Axis, -quat.Angle);
-            ////TODO: make software calibration work
-            //invertedQuat = new Quaternion(quat.Axis, quat.Angle);
             worldQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
             mpuStable = true;
 #if (INV)
