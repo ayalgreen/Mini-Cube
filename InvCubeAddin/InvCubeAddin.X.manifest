@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+
+  <assemblyIdentity name="InvCubeAddin" version="1.0.0.0"></assemblyIdentity>
+
+  <clrClass clsid="{b4b574a8-a3e7-4f54-a4d7-3ed8791f3f64}" progid="InvCubeAddin.StandardAddInServer" threadingModel="Both" name="InvCubeAddin.StandardAddInServer" runtimeVersion=""></clrClass>
+
+  <file name="InvCubeAddin.dll" hashalg="SHA1"></file>
+
+</assembly>

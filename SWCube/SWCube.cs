@@ -42,7 +42,6 @@ namespace SWCube
         System.Windows.Forms.Timer solidFrameTimer;
         bool solidDoc = false;
         static Mutex solidFrameMutex = new Mutex();
-        bool solidMovement = false;
 
         //static vars
         Quaternion displayQuat;
@@ -103,6 +102,7 @@ namespace SWCube
         public bool DisconnectFromSW()
         {
             //TODO: make this stop-mutex protected and stop timer!
+            //TODO: dispose of control
             //solidFrameTimerT.Stop();
             clientStream.Close();
             client.Close();

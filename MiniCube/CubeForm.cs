@@ -339,6 +339,7 @@ namespace MiniCube
             {
                 portError = true;
             }
+            //TODO if form still open
             this.BeginInvoke(new SimpleDelegate(delegate
             {
                 buttonReconnect.Text = "Reconnect";
