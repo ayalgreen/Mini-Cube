@@ -20,6 +20,7 @@ namespace InvCubeAddin
     [GuidAttribute("b4b574a8-a3e7-4f54-a4d7-3ed8791f3f64")]
     public class StandardAddInServer : Inventor.ApplicationAddInServer
     {
+        #region vars
         //Constants
         double MAX_THETA_DIFF_UNLOCK = 0.01;
         double MAX_AXIS_DIFF_UNLOCK = 0.0001;
@@ -36,9 +37,6 @@ namespace InvCubeAddin
         private Inventor.Application _invApp;
         private TransientGeometry tg;
         private Inventor.ButtonDefinition buttonDef;
-
-        //solid vars
-
         int invFrameInterval;
         System.Threading.Timer invFrameTimerT;
         System.Windows.Forms.Timer invFrameTimer;
@@ -59,7 +57,7 @@ namespace InvCubeAddin
         //debug vars
         Stopwatch stopWatch;
         double[] times;
-
+        #endregion
 
         public StandardAddInServer()
         {
@@ -123,15 +121,16 @@ namespace InvCubeAddin
 
         #endregion
 
+        #region Setup
         private void StartTimer()
         {
             //TODO add stopwatch to make sure not rnning at too high paste
             invFrameInterval = 1;//(int)(1000 / sFPS);
 #if (OLD)
-            solidFrameTimer = new System.Windows.Forms.Timer();
-            solidFrameTimer.Tick += new EventHandler(SolidFrameOld);
-            solidFrameTimer.Interval = solidFrameInterval;
-            solidFrameTimer.Start();
+            invFrameTimer = new System.Windows.Forms.Timer();
+            invFrameTimer.Tick += new EventHandler(InvFrameOld);
+            invFrameTimer.Interval = invFrameInterval;
+            invFrameTimer.Start();
 #else
             invFrameTimerT = new System.Threading.Timer(InvFrameT, null, invFrameInterval, invFrameInterval);
 #endif            
@@ -179,13 +178,15 @@ namespace InvCubeAddin
                 Debug.WriteLine("SocketException: {0}", e);
             }
         }
+        #endregion
 
+        #region Display loop
         //worker thread method for setting up things to update the frame
         private void InvFrameT(object myObject)
         {
             if (invFrameMutex.WaitOne(0))
             {
-                Debug.WriteLine("Timer Tick");
+                Debug.WriteLine("Inv Timer Tick");
                 if (!clientConnected)
                 {
                     invFrameMutex.ReleaseMutex();
@@ -206,7 +207,7 @@ namespace InvCubeAddin
                 times[1] = stopWatch.ElapsedMilliseconds;
                 controlThread.Invoke(new EventHandler(InvFrame));
                 times[7] = stopWatch.ElapsedMilliseconds;
-                Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
+                Debug.WriteLine("inv: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
                 times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
 
                 stopWatch.Stop();
@@ -224,8 +225,6 @@ namespace InvCubeAddin
             Vector3D a = displayQuat.Axis;
             double theta = displayQuat.Angle;
             theta *= Math.PI / 180;
-            //move object instead of the camera
-            theta = -theta;
 
             double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
             try
@@ -324,9 +323,9 @@ namespace InvCubeAddin
         }
 
         //worker thread method for setting up things to update the frame
-        private void InventorFrameOld(object myObject)
+        private void InvFrameOld(object myObject, EventArgs myEventArgs)
         {
-            Debug.WriteLine("Timer Tick");
+            Debug.WriteLine("Inv Timer Tick");
             if (!clientConnected)
             {
                 return;
@@ -347,8 +346,6 @@ namespace InvCubeAddin
             Vector3D a = displayQuat.Axis;
             double theta = displayQuat.Angle;
             theta *= Math.PI / 180;
-            //move object instead of the camera
-            theta = -theta;
 
             double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
             try
@@ -438,12 +435,13 @@ namespace InvCubeAddin
             }
 
             times[7] = stopWatch.ElapsedMilliseconds;
-            Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
+            Debug.WriteLine("inv: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
             times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
             stopWatch.Stop();
         }
+        #endregion
 
-
+        #region Helper Functions
         //method for getting the corrected current quat (and mpu state) from server
         public void GetCorrectedQuat()
         {
@@ -464,6 +462,7 @@ namespace InvCubeAddin
             float Z = BitConverter.ToSingle(data, 9);
             float W = BitConverter.ToSingle(data, 13);
             displayQuat = new Quaternion(X, Y, Z, W);
+            //move object instead of the camera
             displayQuat.Invert();
         }
 
@@ -495,6 +494,7 @@ namespace InvCubeAddin
 
             return vect;
         }
+        #endregion
 
 
     }

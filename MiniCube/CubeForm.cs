@@ -46,6 +46,7 @@ namespace MiniCube
 {
     public partial class CubeForm : Form
     {
+        #region vars
         //Constants
         int BAUD_RATE = 38400;
         string serialComPort = "COM9";
@@ -143,11 +144,12 @@ namespace MiniCube
         static Mutex solidFrameMutex = new Mutex();
         bool solidMovement = false;
 #endif
-
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Setup %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+        #region Setup
         public CubeForm()
         {
             InitializeComponent();
@@ -227,43 +229,6 @@ namespace MiniCube
                 }
             }
         }
-
-#if (INV)
-        private void StartInventor()
-        {
-            try
-            {
-                _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
-                tg = _invApp.TransientGeometry;
-                inventorRunning = true;
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    Type invAppType = Type.GetTypeFromProgID("Inventor.Application");
-
-                    _invApp = (Inventor.Application)System.Activator.CreateInstance(invAppType);
-                    tg = _invApp.TransientGeometry;
-                    _invApp.Visible = true;
-
-                    //Note: if the Inventor session is left running after this
-                    //form is closed, there will still an be and Inventor.exe 
-                    //running. We will use this Boolean to test in Form1.Designer.cs 
-                    //in the dispose method whether or not the Inventor App should
-                    //be shut down when the form is closed.
-                    _inventorStartedByForm = true;
-                    inventorRunning = true;
-
-                }
-                catch (Exception ex2)
-                {
-                    MessageBox.Show(ex2.ToString());
-                    MessageBox.Show("Unable to get or start Inventor");
-                }
-            }
-        }
-#endif
 
         //method for opening a port must be run on UI thread!
         private void OpenPort()
@@ -461,11 +426,11 @@ namespace MiniCube
             }
         }
 #endif
-
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Comm Protocol %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+        #region Cube Comm Protocol
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
@@ -694,11 +659,11 @@ namespace MiniCube
             }
             
         }
-
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Display %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+        #region Display and Server
         //method for getting the corrected current quat
         public Quaternion GetCorrectedQuat()
         {
@@ -732,143 +697,6 @@ namespace MiniCube
         private void InventorFrameDebug(object myObject)
         {
             debugger.Frame(quat, invCalQuat, worldQuat, camDist);            
-        }
-#endif
-
-#if (INV)
-        //method for updating the inventor cam view
-        private void InventorFrameT(object myObject)
-        {
-            //no update over "noise", no update during calibration
-            if (!MovementFilter() || !mpuStable)
-            {
-                return;
-            }
-            lastLockedQuat = quat;
-            
-            Quaternion tempQuat = GetCorrectedQuat();
-            Vector3D a = tempQuat.Axis;
-            double theta = tempQuat.Angle;
-            theta *= Math.PI / 180;
-            //move object instead of the camera
-            theta = -theta;
-
-            double[] camPos = RotateQuaternion(0, 0, -camDist, a, theta);
-            double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
-            
-            InvFrameDisplay(a, theta, camUp);
-        }
-
-        //displaying an inventor frame (non debugger).
-        public bool InvFrameDisplay(Vector3D a, double theta, double[] camUp)
-        {
-            Stopwatch stopWatch = new Stopwatch();
-            double[] times = new double[8];
-            stopWatch.Start();
-            if (inventorFrameMutex.WaitOne(0))
-            {
-                //avoid exceptions if possible before actually updating the frame
-                if (inventorRunning)
-                {
-                    try
-                    {
-                        //TODO: this doesn't necesarily throw exception when inventor is off
-                        //avoid exceptions if possible
-                        if (_invApp.ActiveView != null)
-                        {
-                            try
-                            {
-                                times[0] = stopWatch.ElapsedMilliseconds;
-                                Inventor.Camera cam = _invApp.ActiveView.Camera;
-                                times[1] = stopWatch.ElapsedMilliseconds;
-                                double[] eyeArr = new double[3] { 0, 0, 0 }; 
-                                cam.Eye.GetPointData(ref eyeArr); 
-                                times[2] = stopWatch.ElapsedMilliseconds;
-                                double[] targetArr = new double[3] { 0, 0, 0 }; 
-                                cam.Target.GetPointData(ref targetArr); 
-                                times[3] = stopWatch.ElapsedMilliseconds;
-                                double[] camVector = new double[3]
-                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
-                                camDist = Math.Sqrt(camVector[0] * camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
-                                /*i think the algorithm should be:
-                                 * get rotation for Z axis to targetpoint (call it A)
-                                 * rotate Z axis (probably a point on it with same dist as target vector size)
-                                 * rotate said point by A (potentially conjugated by the quat. not sure about this?)
-                                 * rotate cam vector by a similar procedure(?)
-                                 */
-                                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-                                times[4] = stopWatch.ElapsedMilliseconds;
-                                cam.Target = tg.CreatePoint();
-                                times[5] = stopWatch.ElapsedMilliseconds;
-                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                times[6] = stopWatch.ElapsedMilliseconds;
-                                cam.ApplyWithoutTransition();
-                                times[7] = stopWatch.ElapsedMilliseconds;
-                            }
-                            /*centers, doesn't change scale!
-                            { 
-                                Inventor.Camera cam = _invApp.ActiveView.Camera;
-                                TransientGeometry tg = _invApp.TransientGeometry;
-                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
-                                cam.Eye.GetPointData(ref eyeArr); //
-                                double[] targetArr = new double[3] { 0, 0, 0 }; //
-                                cam.Target.GetPointData(ref targetArr); //
-                                double[] camVector = new double[3] 
-                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
-                                camDist = Math.Sqrt(camVector[0]* camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
-                                camPos = RotateQuaternion(0, 0, camDist, a, theta);
-                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);                                
-                                cam.Target = tg.CreatePoint();
-                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                cam.ApplyWithoutTransition();
-                            }*/
-                            /* centers and rescales!
-                            {
-                                times[1] = stopWatch.ElapsedMilliseconds;
-                                //Stopwatch stopWatch = new Stopwatch();
-                                //stopWatch.Start();                            
-                                Inventor.Camera cam = _invApp.ActiveView.Camera;
-                                times[2] = stopWatch.ElapsedMilliseconds;
-                                TransientGeometry tg = _invApp.TransientGeometry;
-                                times[3] = stopWatch.ElapsedMilliseconds;
-                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
-                                times[4] = stopWatch.ElapsedMilliseconds;
-                                cam.Target = tg.CreatePoint();
-                                times[5] = stopWatch.ElapsedMilliseconds;
-                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
-                                times[6] = stopWatch.ElapsedMilliseconds;
-                                cam.ApplyWithoutTransition();
-                                times[7] = stopWatch.ElapsedMilliseconds;
-                            }*/
-                            //no active view
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
-                            }
-                        }
-                    }
-                    //no _invApp
-                    catch (Exception ex)
-                    {
-                        inventorRunning = false;
-                        MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
-                    }
-                }
-                inventorFrameMutex.ReleaseMutex();
-                stopWatch.Stop();
-#if (DEBUGG)
-                Debug.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
-#endif
-            }
-#if (DEBUGG)
-            else
-            {
-                Debug.WriteLine("inventor frame mutex block");
-                return false;
-            }
-#endif
-            return true;
         }
 #endif
 
@@ -955,11 +783,11 @@ namespace MiniCube
         {
             return mpuStable;
         }
-
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Helper Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+        #region Helper Functions
         //according to http://www.opengl-tutorial.org/assets/faq_quaternions/index.html#Q54
         //NOT according to wikipedia https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion (wtf?)
         public double[,] QuatToRotation(Quaternion a)
@@ -1044,11 +872,11 @@ namespace MiniCube
             
             return vect;
         }
-
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Program Flow %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+        #region Program flow
         //a ping timer is started upon port opening.
         //a ping checks for activeness of inventor (shuts down otherwise)
         //and for serial port (shuts down itself and frame clock otherwise)
@@ -1235,11 +1063,11 @@ namespace MiniCube
         {
             buttonReconnect.Enabled = true;
         }
-
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Calibration %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+        #region Calibration
         private void buttonCalibrate_Click(object sender, EventArgs e)
         {
             new SimpleDelegate(Calibrate).BeginInvoke(null, null);
@@ -1366,10 +1194,182 @@ namespace MiniCube
         {
             calAlgNum2 = !calAlgNum2;
         }
-
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Obsolete %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+#if (INV)
+        private void StartInventor()
+        {
+            try
+            {
+                _invApp = (Inventor.Application)Marshal.GetActiveObject("Inventor.Application");
+                tg = _invApp.TransientGeometry;
+                inventorRunning = true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Type invAppType = Type.GetTypeFromProgID("Inventor.Application");
+
+                    _invApp = (Inventor.Application)System.Activator.CreateInstance(invAppType);
+                    tg = _invApp.TransientGeometry;
+                    _invApp.Visible = true;
+
+                    //Note: if the Inventor session is left running after this
+                    //form is closed, there will still an be and Inventor.exe 
+                    //running. We will use this Boolean to test in Form1.Designer.cs 
+                    //in the dispose method whether or not the Inventor App should
+                    //be shut down when the form is closed.
+                    _inventorStartedByForm = true;
+                    inventorRunning = true;
+
+                }
+                catch (Exception ex2)
+                {
+                    MessageBox.Show(ex2.ToString());
+                    MessageBox.Show("Unable to get or start Inventor");
+                }
+            }
+        }
+
+        //method for updating the inventor cam view
+        private void InventorFrameT(object myObject)
+        {
+            //no update over "noise", no update during calibration
+            if (!MovementFilter() || !mpuStable)
+            {
+                return;
+            }
+            lastLockedQuat = quat;
+            
+            Quaternion tempQuat = GetCorrectedQuat();
+            Vector3D a = tempQuat.Axis;
+            double theta = tempQuat.Angle;
+            theta *= Math.PI / 180;
+            //move object instead of the camera
+            theta = -theta;
+
+            double[] camPos = RotateQuaternion(0, 0, -camDist, a, theta);
+            double[] camUp = RotateQuaternion(0, 1, 0, a, theta);
+            
+            InvFrameDisplay(a, theta, camUp);
+        }
+
+        //displaying an inventor frame (non debugger).
+        public bool InvFrameDisplay(Vector3D a, double theta, double[] camUp)
+        {
+            Stopwatch stopWatch = new Stopwatch();
+            double[] times = new double[8];
+            stopWatch.Start();
+            if (inventorFrameMutex.WaitOne(0))
+            {
+                //avoid exceptions if possible before actually updating the frame
+                if (inventorRunning)
+                {
+                    try
+                    {
+                        //TODO: this doesn't necesarily throw exception when inventor is off
+                        //avoid exceptions if possible
+                        if (_invApp.ActiveView != null)
+                        {
+                            try
+                            {
+                                times[0] = stopWatch.ElapsedMilliseconds;
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                times[1] = stopWatch.ElapsedMilliseconds;
+                                double[] eyeArr = new double[3] { 0, 0, 0 }; 
+                                cam.Eye.GetPointData(ref eyeArr); 
+                                times[2] = stopWatch.ElapsedMilliseconds;
+                                double[] targetArr = new double[3] { 0, 0, 0 }; 
+                                cam.Target.GetPointData(ref targetArr); 
+                                times[3] = stopWatch.ElapsedMilliseconds;
+                                double[] camVector = new double[3]
+                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
+                                camDist = Math.Sqrt(camVector[0] * camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
+                                /*i think the algorithm should be:
+                                 * get rotation for Z axis to targetpoint (call it A)
+                                 * rotate Z axis (probably a point on it with same dist as target vector size)
+                                 * rotate said point by A (potentially conjugated by the quat. not sure about this?)
+                                 * rotate cam vector by a similar procedure(?)
+                                 */
+                                double[] camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                times[4] = stopWatch.ElapsedMilliseconds;
+                                cam.Target = tg.CreatePoint();
+                                times[5] = stopWatch.ElapsedMilliseconds;
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                times[6] = stopWatch.ElapsedMilliseconds;
+                                cam.ApplyWithoutTransition();
+                                times[7] = stopWatch.ElapsedMilliseconds;
+                            }
+                            /*centers, doesn't change scale!
+                            { 
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                TransientGeometry tg = _invApp.TransientGeometry;
+                                double[] eyeArr = new double[3] { 0, 0, 0 }; //
+                                cam.Eye.GetPointData(ref eyeArr); //
+                                double[] targetArr = new double[3] { 0, 0, 0 }; //
+                                cam.Target.GetPointData(ref targetArr); //
+                                double[] camVector = new double[3] 
+                                        {eyeArr[0]-targetArr[0], eyeArr[1] - targetArr[1], eyeArr[2] - targetArr[2] };//
+                                camDist = Math.Sqrt(camVector[0]* camVector[0] + camVector[1] * camVector[1] + camVector[2] * camVector[2]);
+                                camPos = RotateQuaternion(0, 0, camDist, a, theta);
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);                                
+                                cam.Target = tg.CreatePoint();
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                cam.ApplyWithoutTransition();
+                            }*/
+                            /* centers and rescales!
+                            {
+                                times[1] = stopWatch.ElapsedMilliseconds;
+                                //Stopwatch stopWatch = new Stopwatch();
+                                //stopWatch.Start();                            
+                                Inventor.Camera cam = _invApp.ActiveView.Camera;
+                                times[2] = stopWatch.ElapsedMilliseconds;
+                                TransientGeometry tg = _invApp.TransientGeometry;
+                                times[3] = stopWatch.ElapsedMilliseconds;
+                                cam.Eye = tg.CreatePoint(camPos[0], camPos[1], camPos[2]);
+                                times[4] = stopWatch.ElapsedMilliseconds;
+                                cam.Target = tg.CreatePoint();
+                                times[5] = stopWatch.ElapsedMilliseconds;
+                                cam.UpVector = tg.CreateUnitVector(camUp[0], camUp[1], camUp[2]);
+                                times[6] = stopWatch.ElapsedMilliseconds;
+                                cam.ApplyWithoutTransition();
+                                times[7] = stopWatch.ElapsedMilliseconds;
+                            }*/
+                            //no active view
+                            catch (Exception ex)
+                            {
+                                MessageBox.Show("Unable to rotate Inventor Camera!\n" + ex.ToString());
+                            }
+                        }
+                    }
+                    //no _invApp
+                    catch (Exception ex)
+                    {
+                        inventorRunning = false;
+                        MessageBox.Show("Oh no! Something went wrong with Inventor!\n" + ex.ToString());
+                    }
+                }
+                inventorFrameMutex.ReleaseMutex();
+                stopWatch.Stop();
+#if (DEBUGG)
+                Debug.WriteLine("inventor: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
+#endif
+            }
+#if (DEBUGG)
+            else
+            {
+                Debug.WriteLine("inventor frame mutex block");
+                return false;
+            }
+#endif
+            return true;
+        }
+#endif
 
 #if (SOLID)
         private void StartSolid()

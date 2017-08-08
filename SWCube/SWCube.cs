@@ -1,5 +1,7 @@
-﻿//#define OLD
+﻿
 
+
+//#define OLD
 
 using System;
 using System.Runtime.InteropServices;
@@ -171,7 +173,7 @@ namespace SWCube
         {
             if (solidFrameMutex.WaitOne(0))
             {
-                Debug.WriteLine("Timer Tick");
+                Debug.WriteLine("Solid Timer Tick");
                 if (!clientConnected)
                 {
                     solidFrameMutex.ReleaseMutex();
@@ -282,7 +284,7 @@ namespace SWCube
         //comtlete method for updating the solid cam view - non threaded
         private void SolidFrameOld(object myObject, EventArgs myEventArgs)
         {
-            Debug.WriteLine("Timer Tick");
+            Debug.WriteLine("Solid Timer Tick");
             if (!clientConnected)
             {
                 return;
