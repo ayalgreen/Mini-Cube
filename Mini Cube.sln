@@ -28,7 +28,12 @@ Project("{E24C65DC-7377-472B-9ABA-BC803B73C61A}") = "360player", "MiniCube\360pl
 		SlnRelativePath = "MiniCube\360player\"
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SWCube", "ClassLibrary1\SWCube.csproj", "{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SWCube", "SWCube\SWCube.csproj", "{A3396A69-4EB1-40E0-B7A0-962E3FCAB4D4}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolidAddinInstaller", "SolidAddinInstaller", "{74A11AD0-824A-4150-8ABC-4DFFB0F21FB7}"
+	ProjectSection(SolutionItems) = preProject
+		SWCube\SolidWorksAddinInstaller.exe = SWCube\SolidWorksAddinInstaller.exe
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
