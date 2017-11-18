@@ -1,4 +1,6 @@
-﻿using System;
+﻿//#define DEBUGG
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -20,7 +22,7 @@ namespace MiniCube
         private bool notTimedOut;
         private CubeForm cube;
         private ASCIIEncoding asciiEnco;
-#if (DEBUG)
+#if (DEBUGG)
         Stopwatch serverWatch = new Stopwatch();
         long lastTime = 0;
 #endif
@@ -70,7 +72,7 @@ namespace MiniCube
             NetworkStream stream = client.GetStream();
             
             bool isWebSocket = Handshaker(client, stream);
-#if (DEBUG)
+#if (DEBUGG)
             serverWatch.Restart();
 #endif
             if (isWebSocket)
@@ -146,7 +148,7 @@ namespace MiniCube
                     //don't waste all CPU in vain
                     System.Threading.Thread.Sleep(1);
                 }
-#if (DEBUG)
+#if (DEBUGG)
                 Debug.WriteLine("got getQuat after: {0} milisecs from previous", serverWatch.ElapsedMilliseconds - lastTime);
                 lastTime = serverWatch.ElapsedMilliseconds;
 #endif
@@ -219,7 +221,7 @@ namespace MiniCube
                     //don't waste all CPU in vain
                     System.Threading.Thread.Sleep(1);
                 }
-#if (DEBUG)
+#if (DEBUGG)
                 Debug.WriteLine("got getQuat after: {0} milisecs from previous", serverWatch.ElapsedMilliseconds - lastTime);
                 lastTime = serverWatch.ElapsedMilliseconds;
 #endif

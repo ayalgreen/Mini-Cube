@@ -21,10 +21,13 @@
 
 //#define BT
 //#define DEBUGGER    //works instead of inventor frame!
-//#define DEBUGG      //show mutex blocks
+#define DEBUGG      //show mutex blocks
+#define QUATREADMON
+#define SYNCMON
 //#define INV
 //#define SOLID
 #define SERVER
+
 
 using System;
 using System.IO;
@@ -84,7 +87,6 @@ namespace MiniCube
         char[] teapotPacket = new char[14];  // InvenSense Teapot packet
         int serialCount = 0;                 // current packet byte position
         bool synced = false;
-        bool noSync = true;
         int pingTimerInterval;
         System.Threading.Timer pingTimerT;
         char[] pingBuff = { 'r' };
@@ -117,6 +119,8 @@ namespace MiniCube
         DebugForm debugger;
         String closeMutexOwner = "";
         bool formClose;
+        bool noFullSync = true;
+        bool noSync = true;
 
         //inventor vars
         Inventor.Application _invApp;
@@ -449,10 +453,10 @@ namespace MiniCube
                             //TODO only if port isn't closed!
                             byte[] buffer = new byte[serialPort1.BytesToRead];
                             serialPort1.Read(buffer, 0, buffer.Length);
-                            //TODO: which is better?
-                            new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
+                            //new run, using delegate.beginInvoke is bad!! causes mutex blocks and losss of sync on laptop.
+                            //new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
                             //old run using control.beginInvoke
-                            //BeginInvoke(new DataProcessDelegate(Synchronizer), buffer);
+                            BeginInvoke(new DataProcessDelegate(Synchronizer), buffer);
                             serialPortDataMutex.ReleaseMutex();
                             return;
                         }
@@ -496,15 +500,18 @@ namespace MiniCube
                                 if (!synced && ch != '$')
                                 {
                                     //TODO: after long (50 sec) debug break in Stable() (after clicking calibrate) gets deadlocked on this
+#if (SYNCMON)
                                     Debug.Write((char)ch);
                                     noSync = true;
+                                    noFullSync = true;
+#endif
                                     continue;  // initial synchronization - also used to resync/realign if needed
                                 }
-                                //noSync doesn't become true after each packet
+#if (SYNCMON)
                                 if (noSync)
                                 {
-                                    Debug.WriteLine("Synced!");
-                                    /*old code:
+                                    Debug.WriteLine("Sync Started..");
+                                    /*old code: (if brought back, nosync must be more than a debug var!!)
                                     //if regained sync after calibration, should wait for stabilization, adjust heading, and change view.
                                     if (mpuCalibrating)
                                     {
@@ -513,9 +520,10 @@ namespace MiniCube
                                         makeCorrection = true;
                                         mpuStabilizeTimer.Start();
                                     }*/
-                                }
-                                synced = true;
-                                noSync = false;
+                                    noSync = false;
+                                }                                
+#endif
+                                synced = true;                                
 
                                 if ((serialCount == 1 && ch != 2)
                                     || (serialCount == 12 && ch != '\r')
@@ -523,6 +531,10 @@ namespace MiniCube
                                 {
                                     serialCount = 0;
                                     synced = false;
+#if (SYNCMON)
+                                    noSync = true;
+                                    noFullSync = true;
+#endif
                                     continue;
                                 }
                                 //TODO: only needed as long as close sequence/reconnect may alter serialCount
@@ -532,6 +544,13 @@ namespace MiniCube
                                     //congrats! we have a new packet. 
                                     if (serialCount == 14)
                                     {
+#if (SYNCMON)
+                                        if (noFullSync)
+                                        {
+                                            Debug.WriteLine("Sync complete!");
+                                            noFullSync = false;
+                                        }
+#endif
                                         //restart packet byte position
                                         serialCount = 0;
                                         //synced has to be false for serial count 0, so that messages can be displayed
@@ -597,7 +616,8 @@ namespace MiniCube
                             quat = new Quaternion(q[0], q[2], -q[3], q[1]);
                             //this was before debugging
                             //quat = new Quaternion(q[0], -q[2], q[3], q[1]);
-                            /*//checking quat update speed
+#if (QUATREADMON)
+                            //checking quat update speed
                             quatReading2++;
                             if (quatReading2 >= 10)
                             {
@@ -613,7 +633,8 @@ namespace MiniCube
                                 Debug.WriteLine("quat readings: {0} {1} {2} {3} {4} {5} {6} {7} {8}", qrt[1] - qrt[0], 
                                    qrt[2] - qrt[1], qrt[3] - qrt[2], qrt[4] - qrt[3], qrt[5] - qrt[4], qrt[6] - qrt[5], 
                                    qrt[7] - qrt[6], qrt[8] - qrt[7], qrt[9] - qrt[8]);
-                            }*/
+                            }
+#endif
 
                             double diffTheta = oldQuat.Angle - quat.Angle;
                             Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
@@ -659,11 +680,11 @@ namespace MiniCube
             }
             
         }
-        #endregion
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Display %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        #region Display and Server
+#region Display and Server
         //method for getting the corrected current quat
         public Quaternion GetCorrectedQuat()
         {
@@ -783,11 +804,11 @@ namespace MiniCube
         {
             return mpuStable;
         }
-        #endregion
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Helper Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        #region Helper Functions
+#region Helper Functions
         //according to http://www.opengl-tutorial.org/assets/faq_quaternions/index.html#Q54
         //NOT according to wikipedia https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion (wtf?)
         public double[,] QuatToRotation(Quaternion a)
@@ -872,11 +893,11 @@ namespace MiniCube
             
             return vect;
         }
-        #endregion
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Program Flow %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        #region Program flow
+#region Program flow
         //a ping timer is started upon port opening.
         //a ping checks for activeness of inventor (shuts down otherwise)
         //and for serial port (shuts down itself and frame clock otherwise)
@@ -1063,11 +1084,11 @@ namespace MiniCube
         {
             buttonReconnect.Enabled = true;
         }
-        #endregion
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Calibration %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        #region Calibration
+#region Calibration
         private void buttonCalibrate_Click(object sender, EventArgs e)
         {
             new SimpleDelegate(Calibrate).BeginInvoke(null, null);
@@ -1194,7 +1215,7 @@ namespace MiniCube
         {
             calAlgNum2 = !calAlgNum2;
         }
-        #endregion
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Obsolete %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
