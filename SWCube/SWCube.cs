@@ -2,6 +2,8 @@
 
 
 //#define OLD
+//#define TICKMON
+//#define FRAMEMON
 
 using System;
 using System.Runtime.InteropServices;
@@ -10,6 +12,7 @@ using SolidWorks.Interop.swpublished;
 using System.Net.Sockets;
 using System.Windows.Forms;
 using System.Windows.Media.Media3D;
+using System.Collections;
 //using System.Runtime.InteropServices;
 using System.Threading;
 using System.Diagnostics;
@@ -37,7 +40,8 @@ namespace SWCube
         //solid vars
         public SldWorks _swApp;
         MathUtility swMathUtility;
-        
+        MathTransform orientation;
+
         private int mSWCookie;
         int solidFrameInterval;
         System.Threading.Timer solidFrameTimerT;
@@ -48,6 +52,9 @@ namespace SWCube
         //static vars
         Quaternion displayQuat;
         Quaternion lastDisplayQuat;
+        Queue quatQueue;
+        int queueBufferSize = 3; //TODO: get from server?
+        int queueSize = 0;
         bool mpuStable = false;
         Control controlThread;
 
@@ -90,6 +97,7 @@ namespace SWCube
             // Set-up add-in call back info
             bool result = _swApp.SetAddinCallbackInfo(0, this, Cookie);
             swMathUtility = (MathUtility)_swApp.GetMathUtility();
+            orientation = swMathUtility.CreateTransform(new double[1]);
             controlThread = new Control();
             controlThread.CreateControl();
             _swApp.SendMsgToUser2("Press OK when server is up!",
@@ -115,6 +123,7 @@ namespace SWCube
         {
             //TODO add stopwatch to make sure not rnning at too high paste
             solidFrameInterval = 1;//(int)(1000 / sFPS);
+            quatQueue = new Queue();
 #if (OLD)
             solidFrameTimer = new System.Windows.Forms.Timer();
             solidFrameTimer.Tick += new EventHandler(SolidFrameOld);
@@ -173,31 +182,44 @@ namespace SWCube
         {
             if (solidFrameMutex.WaitOne(0))
             {
+#if (TICKMON)
                 Debug.WriteLine("Solid Timer Tick");
+#endif
                 if (!clientConnected)
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
                 }
+#if (FRAMEMON)
                 stopWatch = new Stopwatch();
                 times = new double[8];
                 stopWatch.Start();
+#endif
                 GetCorrectedQuat();
+#if (FRAMEMON)
                 times[0] = stopWatch.ElapsedMilliseconds;
+#endif
                 if (!mpuStable || !MovementFilter())
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
                 }
                 lastDisplayQuat = displayQuat;
+                //added for queue:
+                quatQueue.Clear();
+                queueSize = 0;
 
+#if (FRAMEMON)
                 times[1] = stopWatch.ElapsedMilliseconds;
+#endif
                 controlThread.Invoke(new EventHandler(SolidFrame));
+#if (FRAMEMON)
                 times[7] = stopWatch.ElapsedMilliseconds;
                 Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
                 times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
 
                 stopWatch.Stop();
+#endif
                 solidFrameMutex.ReleaseMutex();            
             }
             else
@@ -209,7 +231,9 @@ namespace SWCube
         //method for updating the solid cam view
         private void SolidFrame(object myObject, EventArgs myEventArgs)
         {
+#if (FRAMEMON)
             times[2] = stopWatch.ElapsedMilliseconds;
+#endif
             try
             {
                 if (!solidDoc)
@@ -255,15 +279,19 @@ namespace SWCube
                         tempArr[13] = 0;
                         tempArr[14] = 0;
                         tempArr[15] = 0;
-
+#if (FRAMEMON)
                         times[3] = stopWatch.ElapsedMilliseconds;
-                        MathTransform orientation = swMathUtility.CreateTransform(new double[1]); 
+#endif
                         orientation.ArrayData = tempArr;
                         view.Orientation3 = orientation;
                         //view.RotateAboutCenter(0, 0);
+#if (FRAMEMON)
                         times[4] = stopWatch.ElapsedMilliseconds;
+#endif
                         view.GraphicsRedraw(new int[] { });
+#if (FRAMEMON)
                         times[5] = stopWatch.ElapsedMilliseconds;
+#endif
                     }
                     //no active view
                     catch (Exception ex)
@@ -278,9 +306,81 @@ namespace SWCube
             {
                 Debug.WriteLine("Oh no! Something went wrong with Solid!\n" + ex.ToString());
             }
+#if (FRAMEMON)
             times[6] = stopWatch.ElapsedMilliseconds;
+#endif
         }
 
+        //method for getting the corrected current quat (and mpu state) from server
+        public void GetCorrectedQuat()
+        {
+            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_QUAT_MESSAGE);
+            clientStream.Write(data, 0, data.Length);
+            int readBytes = 0;
+            while (readBytes < 17)
+            {
+                //TODO: wait to complete the data
+                data = new Byte[17];
+                // Read batch of the TcpServer response bytes.
+                Int32 bytes = clientStream.Read(data, readBytes, data.Length-readBytes);
+                readBytes += bytes;
+            }
+            mpuStable = BitConverter.ToBoolean(data, 0);
+            float X = BitConverter.ToSingle(data, 1);
+            float Y = BitConverter.ToSingle(data, 5);
+            float Z = BitConverter.ToSingle(data, 9);
+            float W = BitConverter.ToSingle(data, 13);
+            displayQuat = new Quaternion(X, Y, Z, W);
+            displayQuat.Invert();
+        }
+
+
+        //TODO: make a good filter.
+        //function that checks whether an actual movement of the cube was made
+        private bool MovementFilter()
+        {
+            if (queueSize < queueBufferSize-1)
+            {
+                quatQueue.Enqueue(displayQuat);
+                queueSize++;
+                return false;
+            }
+
+            double diffTheta = lastDisplayQuat.Angle - displayQuat.Angle;
+            Vector3D diffVector = Vector3D.Subtract(lastDisplayQuat.Axis, displayQuat.Axis);
+            if (!(diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK || diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK))
+            {
+                ////TODO: fix cube so there is no drift to begin with and so this can be removed?
+                //avoid jumping due to drifting
+                //lastDisplayQuat = displayQuat;
+                quatQueue.Enqueue(displayQuat);
+                lastDisplayQuat = (Quaternion)quatQueue.Dequeue();                
+                return false;
+            }            
+            return true;
+        }
+
+
+        public double[,] QuatToRotation(Quaternion a)
+        {
+            double[,] rotation = new double[3, 3];
+            rotation[0, 0] = 1 - (2 * a.Y * a.Y + 2 * a.Z * a.Z);
+            rotation[0, 1] = 2 * a.X * a.Y + 2 * a.Z * a.W;
+            rotation[0, 2] = 2 * a.X * a.Z - 2 * a.Y * a.W;
+
+            rotation[1, 0] = 2 * a.X * a.Y - 2 * a.Z * a.W;
+            rotation[1, 1] = 1 - (2 * a.X * a.X + 2 * a.Z * a.Z);
+            rotation[1, 2] = 2 * a.Y * a.Z + 2 * a.X * a.W;
+
+            rotation[2, 0] = 2 * a.X * a.Z + 2 * a.Y * a.W;
+            rotation[2, 1] = 2 * a.Y * a.Z - 2 * a.X * a.W;
+            rotation[2, 2] = 1 - (2 * a.X * a.X + 2 * a.Y * a.Y);
+
+            return rotation;
+        }
+
+
+        #region old...
         //comtlete method for updating the solid cam view - non threaded
         private void SolidFrameOld(object myObject, EventArgs myEventArgs)
         {
@@ -296,7 +396,7 @@ namespace SWCube
 
             GetCorrectedQuat();
 
-            if (!mpuStable || !MovementFilter())
+            if (!mpuStable || !MovementFilterOld())
             {
                 return;
             }
@@ -358,7 +458,6 @@ namespace SWCube
                         tempArr[14] = 0;
                         tempArr[15] = 0;
                         //? ms
-                        MathTransform orientation = swMathUtility.CreateTransform(new double[1]);
                         orientation.ArrayData = tempArr;
                         times[5] = stopWatch.ElapsedMilliseconds;
                         //? ms
@@ -389,64 +488,22 @@ namespace SWCube
 
         }
 
-        //method for getting the corrected current quat (and mpu state) from server
-        public void GetCorrectedQuat()
-        {
-            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_QUAT_MESSAGE);
-            clientStream.Write(data, 0, data.Length);
-            int readBytes = 0;
-            while (readBytes < 17)
-            {
-                //TODO: wait to complete the data
-                data = new Byte[17];
-                // Read batch of the TcpServer response bytes.
-                Int32 bytes = clientStream.Read(data, readBytes, data.Length-readBytes);
-                readBytes += bytes;
-            }
-            mpuStable = BitConverter.ToBoolean(data, 0);
-            float X = BitConverter.ToSingle(data, 1);
-            float Y = BitConverter.ToSingle(data, 5);
-            float Z = BitConverter.ToSingle(data, 9);
-            float W = BitConverter.ToSingle(data, 13);
-            displayQuat = new Quaternion(X, Y, Z, W);
-            displayQuat.Invert();
-        }
-
-
         //TODO: make a good filter.
         //function that checks whether an actual movement of the cube was made
-        private bool MovementFilter()
+        private bool MovementFilterOld()
         {
             double diffTheta = lastDisplayQuat.Angle - displayQuat.Angle;
             Vector3D diffVector = Vector3D.Subtract(lastDisplayQuat.Axis, displayQuat.Axis);
             if (!(diffTheta > MAX_THETA_DIFF_UNLOCK || diffVector.Length > MAX_AXIS_DIFF_UNLOCK))
             {
-                ////TODO: fix cube so can remove?
+                ////TODO: fix cube so there is no drift to begin with and so this can be removed?
                 //avoid jumping due to drifting
                 lastDisplayQuat = displayQuat;
                 return false;
-            }            
+            }
             return true;
         }
-
-
-        public double[,] QuatToRotation(Quaternion a)
-        {
-            double[,] rotation = new double[3, 3];
-            rotation[0, 0] = 1 - (2 * a.Y * a.Y + 2 * a.Z * a.Z);
-            rotation[0, 1] = 2 * a.X * a.Y + 2 * a.Z * a.W;
-            rotation[0, 2] = 2 * a.X * a.Z - 2 * a.Y * a.W;
-
-            rotation[1, 0] = 2 * a.X * a.Y - 2 * a.Z * a.W;
-            rotation[1, 1] = 1 - (2 * a.X * a.X + 2 * a.Z * a.Z);
-            rotation[1, 2] = 2 * a.Y * a.Z + 2 * a.X * a.W;
-
-            rotation[2, 0] = 2 * a.X * a.Z + 2 * a.Y * a.W;
-            rotation[2, 1] = 2 * a.Y * a.Z - 2 * a.X * a.W;
-            rotation[2, 2] = 1 - (2 * a.X * a.X + 2 * a.Y * a.Y);
-
-            return rotation;
-        }
+        #endregion
 
     }
 }
