@@ -1,9 +1,8 @@
-﻿
-
-
-//#define OLD
+﻿//#define OLD
 //#define TICKMON
 //#define FRAMEMON
+//#define DEBUGG
+#define MOVEMON
 
 using System;
 using System.Runtime.InteropServices;
@@ -27,7 +26,7 @@ namespace SWCube
     {
         //Constants
         double MAX_THETA_DIFF_UNLOCK = 0.01;
-        double MAX_AXIS_DIFF_UNLOCK = 0.0001;
+        double MAX_AXIS_DIFF_UNLOCK = 0.001;//0.0001;
         int sFPS = 1000;
         String CONNECT_MESSAGE = "Solid";
         String GET_QUAT_MESSAGE = "getQuat000";
@@ -66,6 +65,9 @@ namespace SWCube
         //debug vars
         Stopwatch stopWatch;
         double[] times;
+        double[] thetaDiffs = new double[10];
+        double[] vectorDiffs = new double[10];
+        int quatReadingNum = 0;
 
         [ComRegisterFunction()]
         private static void ComRegister(Type t)
@@ -222,10 +224,12 @@ namespace SWCube
 #endif
                 solidFrameMutex.ReleaseMutex();            
             }
+#if (DEBUGG)
             else
             {
                 Debug.WriteLine("SolidFrameMutex Drop!");
             }
+#endif
         }
 
         //method for updating the solid cam view
@@ -348,6 +352,21 @@ namespace SWCube
 
             double diffTheta = lastDisplayQuat.Angle - displayQuat.Angle;
             Vector3D diffVector = Vector3D.Subtract(lastDisplayQuat.Axis, displayQuat.Axis);
+#if (MOVEMON)
+            thetaDiffs[quatReadingNum] = diffTheta;
+            vectorDiffs[quatReadingNum] = diffVector.Length;
+            quatReadingNum++;
+            if (quatReadingNum >= 10)
+            {
+                Debug.WriteLine("Quaternion Readings: ({0}, {1}), ({2}, {3}), ({4}, {5}), ({6}, {7}), ({8}, {9}), ({10}, {11}), ({12}, {13}), ({14}, {15}), ({16}, {17}), ({18}, {19})",
+                    thetaDiffs[0], vectorDiffs[0], thetaDiffs[1], vectorDiffs[1], thetaDiffs[2], vectorDiffs[2], thetaDiffs[3], vectorDiffs[3], thetaDiffs[4], vectorDiffs[4],
+                     thetaDiffs[5], vectorDiffs[5], thetaDiffs[6], vectorDiffs[6], thetaDiffs[7], vectorDiffs[7], thetaDiffs[8], vectorDiffs[8], thetaDiffs[9], vectorDiffs[9]);
+
+                thetaDiffs = new double[10];
+                vectorDiffs = new double[10];
+                quatReadingNum = 0;
+            }
+#endif
             if (!(diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK || diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK))
             {
                 ////TODO: fix cube so there is no drift to begin with and so this can be removed?
@@ -356,7 +375,10 @@ namespace SWCube
                 quatQueue.Enqueue(displayQuat);
                 lastDisplayQuat = (Quaternion)quatQueue.Dequeue();                
                 return false;
-            }            
+            }
+#if (MOVEMON)
+            Debug.WriteLine("Tak! angle diff: {0}; Vector diff: {1}", (diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK), (diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK));
+#endif
             return true;
         }
 
@@ -380,7 +402,7 @@ namespace SWCube
         }
 
 
-        #region old...
+#region old...
         //comtlete method for updating the solid cam view - non threaded
         private void SolidFrameOld(object myObject, EventArgs myEventArgs)
         {
@@ -503,7 +525,7 @@ namespace SWCube
             }
             return true;
         }
-        #endregion
+#endregion
 
     }
 }

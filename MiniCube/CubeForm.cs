@@ -630,7 +630,7 @@ namespace MiniCube
                             {
                                 quatReading = 0;
                                 double[] qrt = quatReadingsTimes;
-                                Debug.WriteLine("quat readings: {0} {1} {2} {3} {4} {5} {6} {7} {8}", (qrt[1] - qrt[0]) / 10, 
+                                Debug.WriteLine("quat reading times: {0} {1} {2} {3} {4} {5} {6} {7} {8}", (qrt[1] - qrt[0]) / 10, 
                                    (qrt[2] - qrt[1]) / 10, (qrt[3] - qrt[2]) / 10, (qrt[4] - qrt[3]) / 10, (qrt[5] - qrt[4]) / 10, (qrt[6] - qrt[5]) / 10, 
                                    (qrt[7] - qrt[6]) / 10, (qrt[8] - qrt[7]) / 10, (qrt[9] - qrt[8]) / 10);
                             }
