@@ -1,8 +1,11 @@
 ﻿//#define OLD
+//print on each frame tick
 //#define TICKMON
+//inter frame timing
 //#define FRAMEMON
 //#define DEBUGG
-#define MOVEMON
+//movement filter debugger
+//#define MOVEMON
 
 using System;
 using System.Runtime.InteropServices;
@@ -24,6 +27,7 @@ namespace SWCube
 
     public class SW_Cube : ISwAddin
     {
+        
         //Constants
         double MAX_THETA_DIFF_UNLOCK = 0.01;
         double MAX_AXIS_DIFF_UNLOCK = 0.001;//0.0001;
@@ -40,17 +44,24 @@ namespace SWCube
         public SldWorks _swApp;
         MathUtility swMathUtility;
         MathTransform orientation;
+        public Mouse theMouse;
 
         private int mSWCookie;
         int solidFrameInterval;
         System.Threading.Timer solidFrameTimerT;
+        int serverConnectInterval;
+        System.Threading.Timer serverConnectTimer;
         System.Windows.Forms.Timer solidFrameTimer;
         bool solidDoc = false;
         static Mutex solidFrameMutex = new Mutex();
+        static Mutex ServerConnectMutex = new Mutex();
+        bool mouseSelected = false;
 
         //static vars
         Quaternion displayQuat;
         Quaternion lastDisplayQuat;
+        double[] rotationCenter = {0, 0, 0};
+        double[] rotationCenter1 = { 1, 1, 1 };
         Queue quatQueue;
         int queueBufferSize = 3; //TODO: get from server?
         int queueSize = 0;
@@ -107,7 +118,9 @@ namespace SWCube
                 (int)swMessageBoxBtn_e.swMbOk);
             //TODO: add timer to repeatedly trying to connect.
             ConnectClient();
-            StartTimer();
+            solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, Timeout.Infinite, Timeout.Infinite);
+            serverConnectTimer = new System.Threading.Timer(ServerConnectT, null, Timeout.Infinite, Timeout.Infinite);
+            StartFrameTimer();
             return true;
         }
 
@@ -116,12 +129,26 @@ namespace SWCube
             //TODO: make this stop-mutex protected and stop timer!
             //TODO: dispose of control
             //solidFrameTimerT.Stop();
-            clientStream.Close();
-            client.Close();
+            return DisconnectServer();
+
+        }
+
+        public bool DisconnectServer()
+        {
+            try
+            {
+                clientStream.Close();
+                client.Close();
+                clientConnected = false;
+            }
+            catch
+            {
+                Debug.WriteLine("Error closing server!");
+            }
             return true;
         }
 
-        private void StartTimer()
+        private void StartFrameTimer()
         {
             //TODO add stopwatch to make sure not rnning at too high paste
             solidFrameInterval = 1;//(int)(1000 / sFPS);
@@ -132,10 +159,34 @@ namespace SWCube
             solidFrameTimer.Interval = solidFrameInterval;
             solidFrameTimer.Start();
 #else
-            solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, solidFrameInterval, solidFrameInterval);
+            solidFrameTimerT.Change(solidFrameInterval, solidFrameInterval);// = new System.Threading.Timer(SolidFrameT, null, );
 #endif            
-            Debug.WriteLine("Timer started");
+            Debug.WriteLine("Frame timer started");
         }
+
+        private void StopFrameTimer()
+        {
+#if (OLD)
+            solidFrameTimer.Stop();
+#else
+            solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite);
+#endif            
+            Debug.WriteLine("Frame timer stopped");
+        }
+
+        private void StartServerTimer()
+        {
+            serverConnectInterval = 500;//(int)(1000 / sFPS);
+            serverConnectTimer.Change(serverConnectInterval, serverConnectInterval);// = new System.Threading.Timer(SolidFrameT, null, );
+            Debug.WriteLine("Server timer started");
+        }
+
+        private void StopServerTimer()
+        {
+            serverConnectTimer.Change(Timeout.Infinite, Timeout.Infinite);     
+            Debug.WriteLine("Server timer stopped");
+        }
+
 
         private void ConnectClient()
         {
@@ -146,6 +197,7 @@ namespace SWCube
                 Byte[] data = System.Text.Encoding.ASCII.GetBytes(CONNECT_MESSAGE);
                 clientStream = client.GetStream();
                 clientStream.Write(data, 0, data.Length);
+                //TODO: shouldn't be while(true)
                 while (true)
                 {
                     //TODO: wait to complete the data
@@ -177,8 +229,40 @@ namespace SWCube
             {
                 Debug.WriteLine("SocketException: {0}", e);
             }
+
         }
-        
+
+        //worker thread method for connecting to server
+        private void ServerConnectT(object myObject)//Vector3D a, Double theta)
+        {
+            if (ServerConnectMutex.WaitOne(0))
+            {
+#if (TICKMON)
+                Debug.WriteLine("Server connect Timer Tick");
+#endif
+                if (clientConnected)
+                {
+                    StopServerTimer();
+                    StartFrameTimer();
+                    ServerConnectMutex.ReleaseMutex();
+                    return;
+                }
+
+                ConnectClient();
+                //controlThread.Invoke(new EventHandler(ConnectClient));
+
+                ServerConnectMutex.ReleaseMutex();
+            }
+#if (DEBUGG)
+            else
+            {
+                Debug.WriteLine("ServerConnectMutex Drop!");
+            }
+#endif
+        }
+
+
+
         //worker thread method for setting up things to update the frame
         private void SolidFrameT(object myObject)//Vector3D a, Double theta)
         {
@@ -189,6 +273,8 @@ namespace SWCube
 #endif
                 if (!clientConnected)
                 {
+                    StopFrameTimer();
+                    StartServerTimer();
                     solidFrameMutex.ReleaseMutex();
                     return;
                 }
@@ -201,7 +287,7 @@ namespace SWCube
 #if (FRAMEMON)
                 times[0] = stopWatch.ElapsedMilliseconds;
 #endif
-                if (!mpuStable || !MovementFilter())
+                if ((mouseSelected || true) && (!mpuStable || !MovementFilter()) )
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
@@ -254,35 +340,27 @@ namespace SWCube
                     try
                     {
                         IModelView view = doc.ActiveView;
+                        if (mouseSelected == false)
+                        {
+                            theMouse = view.GetMouse();
+                            theMouse.MouseSelectNotify += MouseClick;
+                            mouseSelected = true;                            
+                        }
                         //TODO: translate :(
                         //15-23 ms no need to translate just yet!
                         //MathTransform translate = view.Translation3;
                         //TODO: rescale :(
                         //no need to rescale yet either
                         //double scale = view.Scale2;
-                        double[,] rotation = QuatToRotation(displayQuat);
-                        double[] tempArr = new double[16];
-                        //new X axis
-                        tempArr[0] = rotation[0, 0];
-                        tempArr[1] = rotation[1, 0];
-                        tempArr[2] = rotation[2, 0];
-                        //new Y axis
-                        tempArr[3] = rotation[0, 1];
-                        tempArr[4] = rotation[1, 1];
-                        tempArr[5] = rotation[2, 1];
-                        //new Z axis
-                        tempArr[6] = rotation[0, 2];
-                        tempArr[7] = rotation[1, 2];
-                        tempArr[8] = rotation[2, 2];
-                        //translation - doesn't mater for orientation!
-                        tempArr[9] = 0;
-                        tempArr[10] = 0;
-                        tempArr[11] = 0;
-                        //scale - doesn't mater for orientation!
-                        tempArr[12] = 1;
-                        tempArr[13] = 0;
-                        tempArr[14] = 0;
-                        tempArr[15] = 0;
+                        //double[,] rotation = QuatToRotation(displayQuat);
+                        double[,] transformation = QuatToTransformation(displayQuat);
+                        double[,] translate = TransToTransformation(-rotationCenter[0], -rotationCenter[1], -rotationCenter[2]);
+                        transformation = MatMult(transformation, translate);
+                        translate = TransToTransformation(rotationCenter[0], rotationCenter[1], rotationCenter[2]);
+                        transformation = MatMult(translate, transformation);
+
+                        double[] tempArr = TransformationToArray(transformation);
+
 #if (FRAMEMON)
                         times[3] = stopWatch.ElapsedMilliseconds;
 #endif
@@ -301,6 +379,7 @@ namespace SWCube
                     catch (Exception ex)
                     {
                         solidDoc = false;
+                        mouseSelected = false;
                         Debug.WriteLine("Unable to rotate Solid Camera!\n" + ex.ToString());
                     }
                 }
@@ -319,15 +398,34 @@ namespace SWCube
         public void GetCorrectedQuat()
         {
             Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_QUAT_MESSAGE);
-            clientStream.Write(data, 0, data.Length);
+            try
+            {
+                clientStream.Write(data, 0, data.Length);
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine("Error writing to server!");
+                DisconnectServer();
+                return;
+            }
             int readBytes = 0;
             while (readBytes < 17)
             {
                 //TODO: wait to complete the data
                 data = new Byte[17];
                 // Read batch of the TcpServer response bytes.
-                Int32 bytes = clientStream.Read(data, readBytes, data.Length-readBytes);
-                readBytes += bytes;
+                Int32 bytes;
+                try
+                {
+                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
+                    readBytes += bytes;
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("Error reading from server!");
+                    DisconnectServer();
+                    return;
+                }                
             }
             mpuStable = BitConverter.ToBoolean(data, 0);
             float X = BitConverter.ToSingle(data, 1);
@@ -382,7 +480,15 @@ namespace SWCube
             return true;
         }
 
+        public int MouseClick(int Ix, int Iy, double X, double Y, double Z)
+        {
+            rotationCenter[0] = X;
+            rotationCenter[1] = Y;
+            rotationCenter[2] = Z;
+            return 1;
+        }
 
+#region conversions
         public double[,] QuatToRotation(Quaternion a)
         {
             double[,] rotation = new double[3, 3];
@@ -401,7 +507,111 @@ namespace SWCube
             return rotation;
         }
 
+        public double[] TransformationToArray(double[,] transformation)
+        {
+            double[] tempArr = new double[16];
+            //new X axis
+            tempArr[0] = transformation[0, 0];
+            tempArr[1] = transformation[1, 0];
+            tempArr[2] = transformation[2, 0];
+            //new Y axis
+            tempArr[3] = transformation[0, 1];
+            tempArr[4] = transformation[1, 1];
+            tempArr[5] = transformation[2, 1];
+            //new Z axis
+            tempArr[6] = transformation[0, 2];
+            tempArr[7] = transformation[1, 2];
+            tempArr[8] = transformation[2, 2];
+            //translation - doesn't mater for orientation!
+            tempArr[9] = transformation[0, 3];
+            tempArr[10] = transformation[1, 3];
+            tempArr[11] = transformation[2, 3];
+            //scale - doesn't mater for orientation!
+            tempArr[12] = transformation[3, 3];
+            //who knows
+            tempArr[13] = 0;
+            tempArr[14] = 0;
+            tempArr[15] = 0;
+            return tempArr;
+        }
 
+        public double[,] QuatToTransformation(Quaternion a)
+        {
+            double[,] transformation = new double[4, 4];
+            transformation[0, 0] = 1 - (2 * a.Y * a.Y + 2 * a.Z * a.Z);
+            transformation[0, 1] = 2 * a.X * a.Y + 2 * a.Z * a.W;
+            transformation[0, 2] = 2 * a.X * a.Z - 2 * a.Y * a.W;
+
+            transformation[0, 3] = 0;
+
+            transformation[1, 0] = 2 * a.X * a.Y - 2 * a.Z * a.W;
+            transformation[1, 1] = 1 - (2 * a.X * a.X + 2 * a.Z * a.Z);
+            transformation[1, 2] = 2 * a.Y * a.Z + 2 * a.X * a.W;
+
+            transformation[1, 3] = 0;
+
+            transformation[2, 0] = 2 * a.X * a.Z + 2 * a.Y * a.W;
+            transformation[2, 1] = 2 * a.Y * a.Z - 2 * a.X * a.W;
+            transformation[2, 2] = 1 - (2 * a.X * a.X + 2 * a.Y * a.Y);
+
+            transformation[2, 3] = 0;
+
+            transformation[3, 0] = 0;
+            transformation[3, 1] = 0;
+            transformation[3, 2] = 0;
+            transformation[3, 3] = 1;
+
+            return transformation;
+        }
+
+        public double[,] TransToTransformation(double x, double y, double z)
+        {
+            double[,] transformation = new double[4, 4];
+            transformation[0, 0] = 1;
+            transformation[0, 1] = 0;
+            transformation[0, 2] = 0;
+
+            transformation[0, 3] = x;
+
+            transformation[1, 0] = 0;
+            transformation[1, 1] = 1;
+            transformation[1, 2] = 0;
+
+            transformation[1, 3] = y;
+
+            transformation[2, 0] = 0;
+            transformation[2, 1] = 0;
+            transformation[2, 2] = 1;
+
+            transformation[2, 3] = z;
+
+            transformation[3, 0] = 0;
+            transformation[3, 1] = 0;
+            transformation[3, 2] = 0;
+            transformation[3, 3] = 1;
+
+            return transformation;
+        }
+
+        public double[,] MatMult(double[,] mat1, double[,] mat2, int dim=4)
+        {
+            double[,] newMat = new double[dim, dim];
+            for (int i=0; i<dim; i++)
+            {
+                for (int j=0; j<dim; j++)
+                {
+                    double sum = 0;
+                    for (int k=0; k<dim; k++)
+                    {
+                        sum += mat1[i, k] * mat2[k, j];
+                    }
+                    newMat[i, j] = sum;
+                }
+            }
+            return newMat;
+        }
+#endregion
+        
 #region old...
         //comtlete method for updating the solid cam view - non threaded
         private void SolidFrameOld(object myObject, EventArgs myEventArgs)

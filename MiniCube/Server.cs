@@ -45,7 +45,14 @@ namespace MiniCube
         //listener
         private void listeningToclients()
         {
-            tcpListn.Start();
+            try
+            {
+                tcpListn.Start();
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine("Error opening server TCP listener on address 127.0.0.1:8090");
+            }
             Debug.WriteLine("Server started!");
             Debug.WriteLine("Waiting for clients...");
             while (this.isServerListening)

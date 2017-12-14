@@ -46,6 +46,8 @@
             this.buttonSetVirWorld = new System.Windows.Forms.Button();
             this.buttonCalReset = new System.Windows.Forms.Button();
             this.checkBoxCalNum2 = new System.Windows.Forms.CheckBox();
+            this.buttonStopServer = new System.Windows.Forms.Button();
+            this.buttonStartServer = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // buttonCalibrate
@@ -128,11 +130,33 @@
             this.checkBoxCalNum2.UseVisualStyleBackColor = true;
             this.checkBoxCalNum2.CheckedChanged += new System.EventHandler(this.checkBoxCalNum2_CheckedChanged);
             // 
+            // buttonStopServer
+            // 
+            this.buttonStopServer.Location = new System.Drawing.Point(4, 105);
+            this.buttonStopServer.Name = "buttonStopServer";
+            this.buttonStopServer.Size = new System.Drawing.Size(114, 31);
+            this.buttonStopServer.TabIndex = 78;
+            this.buttonStopServer.Text = "Stop Server";
+            this.buttonStopServer.UseVisualStyleBackColor = true;
+            this.buttonStopServer.Click += new System.EventHandler(this.buttonStopServer_Click);
+            // 
+            // buttonStartServer
+            // 
+            this.buttonStartServer.Location = new System.Drawing.Point(124, 105);
+            this.buttonStartServer.Name = "buttonStartServer";
+            this.buttonStartServer.Size = new System.Drawing.Size(114, 31);
+            this.buttonStartServer.TabIndex = 79;
+            this.buttonStartServer.Text = "Start Server";
+            this.buttonStartServer.UseVisualStyleBackColor = true;
+            this.buttonStartServer.Click += new System.EventHandler(this.buttonStartServer_Click);
+            // 
             // CubeForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(241, 104);
+            this.ClientSize = new System.Drawing.Size(241, 142);
+            this.Controls.Add(this.buttonStartServer);
+            this.Controls.Add(this.buttonStopServer);
             this.Controls.Add(this.checkBoxCalNum2);
             this.Controls.Add(this.buttonCalReset);
             this.Controls.Add(this.buttonSetVirWorld);
@@ -159,6 +183,8 @@
         private System.Windows.Forms.Button buttonSetVirWorld;
         private System.Windows.Forms.Button buttonCalReset;
         private System.Windows.Forms.CheckBox checkBoxCalNum2;
+        private System.Windows.Forms.Button buttonStopServer;
+        public System.Windows.Forms.Button buttonStartServer;
     }
 }
 

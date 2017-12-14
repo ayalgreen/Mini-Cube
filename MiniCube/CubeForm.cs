@@ -49,7 +49,7 @@ namespace MiniCube
 {
     public partial class CubeForm : Form
     {
-        #region vars
+#region vars
         //Constants
         int BAUD_RATE = 38400;
         string serialComPort = "COM9";
@@ -153,7 +153,7 @@ namespace MiniCube
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Setup %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-        #region Setup
+#region Setup
         public CubeForm()
         {
             InitializeComponent();
@@ -430,11 +430,12 @@ namespace MiniCube
             }
         }
 #endif
-        #endregion
+
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Comm Protocol %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        #region Cube Comm Protocol
+#region Cube Comm Protocol
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
@@ -1215,11 +1216,23 @@ namespace MiniCube
         {
             calAlgNum2 = !calAlgNum2;
         }
-#endregion
+
+        private void buttonStopServer_Click(object sender, EventArgs e)
+        {
+            server.stopServer();
+            serverStarted = false;
+        }
+
+        private void buttonStartServer_Click(object sender, EventArgs e)
+        {
+            server = new Server(this);
+            serverStarted = true;
+        }
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Obsolete %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Obsolete
+        #region Obsolete
 #if (INV)
         private void StartInventor()
         {
