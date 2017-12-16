@@ -2,7 +2,7 @@
 //print on each frame tick
 //#define TICKMON
 //inter frame timing
-//#define FRAMEMON
+#define FRAMEMON
 //#define DEBUGG
 //movement filter debugger
 //#define MOVEMON

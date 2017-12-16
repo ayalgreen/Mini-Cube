@@ -192,7 +192,6 @@ namespace MiniCube
             SetTimers();
             Debug.WriteLine("Opening port...");
             OpenPort();
-
             //OpenBluetooth();
         }
 
@@ -248,26 +247,14 @@ namespace MiniCube
             serialPort1.DtrEnable = true;
             //event handler to be run on *secondary thread*
             serialPort1.DataReceived += new SerialDataReceivedEventHandler(SerialPort1DataReceived);
+            //select the port whose  port name is the required
             foreach (string port in SerialPort.GetPortNames())
             {
                 if (port == serialPort1.PortName)
                 {
-                    //TODO: add timeout? - seems to terminate regardless..
                     portError = false;
-                    Thread newThread = new Thread(this.OpenPortExecution);
+                    Thread newThread = new Thread(this.OpenPortExecutioner);
                     newThread.Start();
-                    //enable wait to avoid multi clicking and exceptions?
-                    /*if (!newThread.Join(TimeSpan.FromSeconds(20)))
-                    {
-                        Debug.WriteLine("could not open port for over 20 seconds!");
-                    } */
-
-                    if (portError)
-                    {
-                        MessageBox.Show("Oh no! Error opening port!\n");
-                    }                     
-
-                    quatReadingsWatch.Start();
                     return;
                 }
             }
@@ -281,9 +268,38 @@ namespace MiniCube
             portError = false;
             Thread newThread = new Thread(this.ClosePortExecution);
             newThread.Start();
+            //timeout for the connection 'try'
+            if (!newThread.Join(TimeSpan.FromSeconds(3)))
+            {
+                portError = true;
+                Debug.WriteLine("could not close port " + serialPort1.PortName);
+            }
             if (portError)
             {
                 MessageBox.Show("Oh no! Error closing port!\n");
+            }
+        }
+
+        //helper function for a timedout OpenPort
+        public void OpenPortExecutioner()
+        {
+            Thread newThread = new Thread(this.OpenPortExecution);
+            newThread.Start();
+            //timeout for the connection 'try'
+            if (!newThread.Join(TimeSpan.FromSeconds(3)))
+            {
+                newThread.Abort();
+                //moved to whithin catch clause
+                //portError = true;
+                //Debug.WriteLine("could not open port " + serialPort1.PortName);
+            }
+            if (this.IsHandleCreated)
+            {
+                this.BeginInvoke(new SimpleDelegate(delegate
+                {
+                    buttonReconnect.Text = "Reconnect";
+                    buttonReconnect.Enabled = true;
+                }));
             }
         }
 
@@ -299,7 +315,7 @@ namespace MiniCube
                 }
                 else
                 {
-                    Debug.WriteLine("Could not open port");
+                    Debug.WriteLine("Could not open port (no exception)");
                 }                
                 pingTimerT.Change(pingTimerInterval, pingTimerInterval);
             }
@@ -307,13 +323,11 @@ namespace MiniCube
             catch (Exception ex)
             {
                 portError = true;
+                MessageBox.Show("Could not open port " + serialPort1.PortName);
+                Debug.WriteLine("Could not open port " + serialPort1.PortName);
+                return;
             }
-            //TODO if form still open
-            this.BeginInvoke(new SimpleDelegate(delegate
-            {
-                buttonReconnect.Text = "Reconnect";
-                buttonReconnect.Enabled = true;
-            }));            
+            quatReadingsWatch.Start();
         }
 
         //threaded version for allowing timeouts
@@ -327,16 +341,19 @@ namespace MiniCube
                     Debug.WriteLine("port closed");
                 }                
             }
-            //if can't open port
+            //if can't close port
             catch (Exception ex)
             {
                 portError = true;
             }
-            this.BeginInvoke(new SimpleDelegate(delegate
+            if (this.IsHandleCreated)
             {
-                buttonReconnect.Text = "Reconnect";
-                buttonReconnect.Enabled = true;
-            }));
+                this.BeginInvoke(new SimpleDelegate(delegate
+                {
+                    buttonReconnect.Text = "Reconnect";
+                    buttonReconnect.Enabled = true;
+                }));
+            }
         }
 
         //TODO: automatic Bluetooth stuff
