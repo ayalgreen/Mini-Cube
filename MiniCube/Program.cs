@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
+using System.Threading;
+
 
 namespace MiniCube
 {
@@ -13,9 +15,19 @@ namespace MiniCube
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new CubeForm());
+            String mutexID = "cube mutex";
+            using (Mutex mutex = new Mutex(false, mutexID))
+            {
+                if (!mutex.WaitOne(0, false))
+                {
+                    MessageBox.Show("Cube aleady running!");
+                    return;
+                }
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new CubeForm());
+            }
+
         }
     }
 }
