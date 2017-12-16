@@ -52,9 +52,10 @@
             // 
             // buttonCalibrate
             // 
-            this.buttonCalibrate.Location = new System.Drawing.Point(4, 31);
+            this.buttonCalibrate.Location = new System.Drawing.Point(8, 60);
+            this.buttonCalibrate.Margin = new System.Windows.Forms.Padding(6);
             this.buttonCalibrate.Name = "buttonCalibrate";
-            this.buttonCalibrate.Size = new System.Drawing.Size(114, 31);
+            this.buttonCalibrate.Size = new System.Drawing.Size(228, 60);
             this.buttonCalibrate.TabIndex = 61;
             this.buttonCalibrate.Text = "Calibrate";
             this.buttonCalibrate.UseVisualStyleBackColor = true;
@@ -62,9 +63,10 @@
             // 
             // buttonReconnect
             // 
-            this.buttonReconnect.Location = new System.Drawing.Point(68, 4);
+            this.buttonReconnect.Location = new System.Drawing.Point(136, 8);
+            this.buttonReconnect.Margin = new System.Windows.Forms.Padding(6);
             this.buttonReconnect.Name = "buttonReconnect";
-            this.buttonReconnect.Size = new System.Drawing.Size(70, 23);
+            this.buttonReconnect.Size = new System.Drawing.Size(140, 44);
             this.buttonReconnect.TabIndex = 72;
             this.buttonReconnect.Text = "Reconnect";
             this.buttonReconnect.UseVisualStyleBackColor = true;
@@ -73,9 +75,10 @@
             // comboBoxPorts
             // 
             this.comboBoxPorts.FormattingEnabled = true;
-            this.comboBoxPorts.Location = new System.Drawing.Point(179, 4);
+            this.comboBoxPorts.Location = new System.Drawing.Point(358, 8);
+            this.comboBoxPorts.Margin = new System.Windows.Forms.Padding(6);
             this.comboBoxPorts.Name = "comboBoxPorts";
-            this.comboBoxPorts.Size = new System.Drawing.Size(59, 21);
+            this.comboBoxPorts.Size = new System.Drawing.Size(114, 33);
             this.comboBoxPorts.TabIndex = 71;
             this.comboBoxPorts.DropDown += new System.EventHandler(this.comboBoxPorts_DropDown);
             this.comboBoxPorts.SelectedIndexChanged += new System.EventHandler(this.comboBoxPorts_SelectedIndexChanged);
@@ -83,17 +86,19 @@
             // label27
             // 
             this.label27.AutoSize = true;
-            this.label27.Location = new System.Drawing.Point(144, 9);
+            this.label27.Location = new System.Drawing.Point(288, 17);
+            this.label27.Margin = new System.Windows.Forms.Padding(6, 0, 6, 0);
             this.label27.Name = "label27";
-            this.label27.Size = new System.Drawing.Size(29, 13);
+            this.label27.Size = new System.Drawing.Size(57, 25);
             this.label27.TabIndex = 70;
             this.label27.Text = "Port:";
             // 
             // buttonResetVirWorld
             // 
-            this.buttonResetVirWorld.Location = new System.Drawing.Point(4, 68);
+            this.buttonResetVirWorld.Location = new System.Drawing.Point(8, 131);
+            this.buttonResetVirWorld.Margin = new System.Windows.Forms.Padding(6);
             this.buttonResetVirWorld.Name = "buttonResetVirWorld";
-            this.buttonResetVirWorld.Size = new System.Drawing.Size(114, 31);
+            this.buttonResetVirWorld.Size = new System.Drawing.Size(228, 60);
             this.buttonResetVirWorld.TabIndex = 74;
             this.buttonResetVirWorld.Text = "Reset Virtual World";
             this.buttonResetVirWorld.UseVisualStyleBackColor = true;
@@ -101,9 +106,10 @@
             // 
             // buttonSetVirWorld
             // 
-            this.buttonSetVirWorld.Location = new System.Drawing.Point(124, 68);
+            this.buttonSetVirWorld.Location = new System.Drawing.Point(248, 131);
+            this.buttonSetVirWorld.Margin = new System.Windows.Forms.Padding(6);
             this.buttonSetVirWorld.Name = "buttonSetVirWorld";
-            this.buttonSetVirWorld.Size = new System.Drawing.Size(114, 31);
+            this.buttonSetVirWorld.Size = new System.Drawing.Size(228, 60);
             this.buttonSetVirWorld.TabIndex = 75;
             this.buttonSetVirWorld.Text = "Set Virtual World";
             this.buttonSetVirWorld.UseVisualStyleBackColor = true;
@@ -111,9 +117,10 @@
             // 
             // buttonCalReset
             // 
-            this.buttonCalReset.Location = new System.Drawing.Point(124, 31);
+            this.buttonCalReset.Location = new System.Drawing.Point(248, 60);
+            this.buttonCalReset.Margin = new System.Windows.Forms.Padding(6);
             this.buttonCalReset.Name = "buttonCalReset";
-            this.buttonCalReset.Size = new System.Drawing.Size(114, 31);
+            this.buttonCalReset.Size = new System.Drawing.Size(228, 60);
             this.buttonCalReset.TabIndex = 76;
             this.buttonCalReset.Text = "Cal Reset";
             this.buttonCalReset.UseVisualStyleBackColor = true;
@@ -122,9 +129,10 @@
             // checkBoxCalNum2
             // 
             this.checkBoxCalNum2.AutoSize = true;
-            this.checkBoxCalNum2.Location = new System.Drawing.Point(7, 8);
+            this.checkBoxCalNum2.Location = new System.Drawing.Point(14, 15);
+            this.checkBoxCalNum2.Margin = new System.Windows.Forms.Padding(6);
             this.checkBoxCalNum2.Name = "checkBoxCalNum2";
-            this.checkBoxCalNum2.Size = new System.Drawing.Size(57, 17);
+            this.checkBoxCalNum2.Size = new System.Drawing.Size(106, 29);
             this.checkBoxCalNum2.TabIndex = 77;
             this.checkBoxCalNum2.Text = "Cal #2";
             this.checkBoxCalNum2.UseVisualStyleBackColor = true;
@@ -132,9 +140,10 @@
             // 
             // buttonStopServer
             // 
-            this.buttonStopServer.Location = new System.Drawing.Point(4, 105);
+            this.buttonStopServer.Location = new System.Drawing.Point(8, 202);
+            this.buttonStopServer.Margin = new System.Windows.Forms.Padding(6);
             this.buttonStopServer.Name = "buttonStopServer";
-            this.buttonStopServer.Size = new System.Drawing.Size(114, 31);
+            this.buttonStopServer.Size = new System.Drawing.Size(228, 60);
             this.buttonStopServer.TabIndex = 78;
             this.buttonStopServer.Text = "Stop Server";
             this.buttonStopServer.UseVisualStyleBackColor = true;
@@ -142,9 +151,10 @@
             // 
             // buttonStartServer
             // 
-            this.buttonStartServer.Location = new System.Drawing.Point(124, 105);
+            this.buttonStartServer.Location = new System.Drawing.Point(248, 202);
+            this.buttonStartServer.Margin = new System.Windows.Forms.Padding(6);
             this.buttonStartServer.Name = "buttonStartServer";
-            this.buttonStartServer.Size = new System.Drawing.Size(114, 31);
+            this.buttonStartServer.Size = new System.Drawing.Size(228, 60);
             this.buttonStartServer.TabIndex = 79;
             this.buttonStartServer.Text = "Start Server";
             this.buttonStartServer.UseVisualStyleBackColor = true;
@@ -152,9 +162,9 @@
             // 
             // CubeForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
+            this.AutoScaleDimensions = new System.Drawing.SizeF(12F, 25F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(241, 142);
+            this.ClientSize = new System.Drawing.Size(482, 273);
             this.Controls.Add(this.buttonStartServer);
             this.Controls.Add(this.buttonStopServer);
             this.Controls.Add(this.checkBoxCalNum2);
@@ -166,7 +176,7 @@
             this.Controls.Add(this.label27);
             this.Controls.Add(this.buttonCalibrate);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
-            this.Margin = new System.Windows.Forms.Padding(2);
+            this.Margin = new System.Windows.Forms.Padding(4);
             this.Name = "CubeForm";
             this.Text = "Cube";
             this.ResumeLayout(false);

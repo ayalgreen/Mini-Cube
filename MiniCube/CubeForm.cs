@@ -102,7 +102,7 @@ namespace MiniCube
         //receive array from cube
         double[] q = new Double[4];
         bool mpuStable = true;
-        bool foundCube = false;
+        bool cubeConnected = false;
         bool calAlgNum2 = false;
 
         //debug vars
@@ -203,6 +203,8 @@ namespace MiniCube
         {
             buttonReconnect.Enabled = false;
             buttonReconnect.Text = "Opening";
+            this.Icon = Properties.Resources.off;
+            cubeConnected = false;
             serialPort1 = new SerialPort();
             serialPort1.ReadTimeout = 200;
             serialPort1.WriteTimeout = 200;
@@ -222,26 +224,6 @@ namespace MiniCube
                     newThread.Start();
                     return;
                 }
-            }
-        }
-
-        //method for closing a port must be run on UI thread!
-        private void ClosePort()
-        {
-            buttonReconnect.Enabled = false;
-            buttonReconnect.Text = "Closing";
-            portError = false;
-            Thread newThread = new Thread(this.ClosePortExecution);
-            newThread.Start();
-            //timeout for the connection 'try'
-            if (!newThread.Join(TimeSpan.FromSeconds(3)))
-            {
-                portError = true;
-                Debug.WriteLine("could not close port " + serialPort1.PortName);
-            }
-            if (portError)
-            {
-                MessageBox.Show("Oh no! Error closing port!\n");
             }
         }
 
@@ -277,6 +259,9 @@ namespace MiniCube
                 if (serialPort1.IsOpen)
                 {
                     Debug.WriteLine("Port opened.");
+                    //TODO move to BT section
+                    cubeConnected = true;
+                    this.Icon = Properties.Resources.on;
                 }
                 else
                 {
@@ -288,11 +273,34 @@ namespace MiniCube
             catch (Exception ex)
             {
                 portError = true;
-                MessageBox.Show("Could not open port " + serialPort1.PortName);
+                //MessageBox.Show("Could not open port " + serialPort1.PortName);
                 Debug.WriteLine("Could not open port " + serialPort1.PortName);
                 return;
             }
             quatReadingsWatch.Start();
+        }
+
+
+        //method for closing a port must be run on UI thread!
+        private void ClosePort()
+        {
+            buttonReconnect.Enabled = false;
+            buttonReconnect.Text = "Closing";
+            this.Icon = Properties.Resources.off;
+            cubeConnected = false;
+            portError = false;
+            Thread newThread = new Thread(this.ClosePortExecution);
+            newThread.Start();
+            //timeout for the connection 'try'
+            if (!newThread.Join(TimeSpan.FromSeconds(3)))
+            {
+                portError = true;
+                Debug.WriteLine("could not close port " + serialPort1.PortName);
+            }
+            if (portError)
+            {
+                MessageBox.Show("Oh no! Error closing port!\n");
+            }
         }
 
         //threaded version for allowing timeouts
@@ -394,7 +402,7 @@ namespace MiniCube
         {
             BluetoothClient client = (BluetoothClient)result.AsyncState;
             client.EndConnect(result);
-            foundCube = true;
+            cubeConnected = true;
 
             Stream stream = client.GetStream();
             stream.ReadTimeout = 1000;
@@ -964,6 +972,7 @@ namespace MiniCube
 
                 synced = false;
                 serialCount = 0;
+                //TODO when should confing be written?
                 using (StreamWriter sw = System.IO.File.CreateText(path))
                 {
                     sw.WriteLine(serialComPort);
@@ -993,9 +1002,11 @@ namespace MiniCube
         private void buttonReconnect_Click(object sender, EventArgs e)
         {
             buttonReconnect.Enabled = false;
+            this.Icon = Properties.Resources.off;
+            cubeConnected = false;
             this.BeginInvoke(new SimpleDelegate(delegate
             {
-
+                //TODO: change to port close executioner
                 try
                 {
                     if (serialPort1.IsOpen)
@@ -1003,7 +1014,7 @@ namespace MiniCube
                         //TODO: can get stuck here!
                         buttonReconnect.Text = "Closing";
                         serialPort1.Close();
-                        Debug.WriteLine("port closed");
+                        Debug.WriteLine("port closed properly");
                     }
                 }
                 catch (Exception ex)
