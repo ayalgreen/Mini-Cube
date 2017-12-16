@@ -73,6 +73,9 @@ namespace MiniCube
         //comm vars
         SerialPort serialPort1 = new SerialPort();
         bool portError = false;
+        System.Threading.Timer BTTimer;
+        int BTTimerInterval = 1000;
+        Thread portOpenerThread;
 
 #if (BT)        
         BluetoothDeviceInfo bluetoothDevice;
@@ -152,7 +155,6 @@ namespace MiniCube
             Debug.WriteLine("Enter Debugg Mode!");
             debugger = new DebugForm(this);
 #endif
-
             //TODO: make software calibration work
             invCalQuat.Invert();
             string[] ports = SerialPort.GetPortNames();
@@ -179,6 +181,8 @@ namespace MiniCube
             pingTimerInterval = 2000;
 
             pingTimerT = new System.Threading.Timer(PingT, null, Timeout.Infinite, Timeout.Infinite);
+            BTTimer = new System.Threading.Timer(CubeSearcher, null, Timeout.Infinite, Timeout.Infinite);
+
         }
 
         private void LoadConfig()
@@ -230,12 +234,21 @@ namespace MiniCube
         //helper function for a timedout OpenPort
         public void OpenPortExecutioner()
         {
-            Thread newThread = new Thread(this.OpenPortExecution);
-            newThread.Start();
-            //timeout for the connection 'try'
-            if (!newThread.Join(TimeSpan.FromSeconds(3)))
+            if (portOpenerThread != null)
             {
-                newThread.Abort();
+                if (portOpenerThread.IsAlive)
+                {
+                    Debug.WriteLine("Stopping previous port open execution");
+                    portOpenerThread.Abort();
+                }
+            }
+            //this doesnt terminate previous thread
+            portOpenerThread = new Thread(this.OpenPortExecution);
+            portOpenerThread.Start();
+            //timeout for the connection 'try'
+            if (!portOpenerThread.Join(TimeSpan.FromSeconds(3)))
+            {
+                portOpenerThread.Abort();
                 //moved to whithin catch clause
                 //portError = true;
                 //Debug.WriteLine("could not open port " + serialPort1.PortName);
@@ -247,6 +260,11 @@ namespace MiniCube
                     buttonReconnect.Text = "Reconnect";
                     buttonReconnect.Enabled = true;
                 }));
+            }
+            if (!cubeConnected)
+            {
+                //TODO finish cube open timer
+                BTTimer.Change(BTTimerInterval, BTTimerInterval);
             }
         }
 
@@ -329,6 +347,11 @@ namespace MiniCube
             }
         }
 
+
+        private void CubeSearcher(object myObject)
+        {
+
+        }
         //TODO: automatic Bluetooth stuff
 #if (BT)
         private void OpenBluetooth()
@@ -421,11 +444,11 @@ namespace MiniCube
         }
 #endif
 
-#endregion
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Comm Protocol %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Cube Comm Protocol
+        #region Cube Comm Protocol
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
