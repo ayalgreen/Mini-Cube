@@ -20,12 +20,10 @@
 //applicable.
 
 //#define BT
-//#define DEBUGGER    //works instead of inventor frame!
-#define DEBUGG      //show mutex blocks
-//#define QUATREADMON
+//#define DEBUGGER    
+//#define DEBUGG      //show mutex blocks
+#define QUATREADMON
 #define SYNCMON
-//#define INV
-//#define SOLID
 #define SERVER
 
 
@@ -36,7 +34,6 @@ using System.Windows.Forms;
 using System.Windows.Media.Media3D;
 using Inventor;
 using System.Runtime.InteropServices;
-using SolidWorks.Interop.sldworks;
 using System.Threading;
 //using InTheHand;
 //using InTheHand.Net.Ports;
@@ -54,7 +51,6 @@ namespace MiniCube
         int BAUD_RATE = 38400;
         string serialComPort = "COM9";
         int iFPS = 60;
-        int sFPS = 60;
         double MAX_THETA_DIFF_LOCK = 0.05;
         double MAX_AXIS_DIFF_LOCK = 0.0005;
         double MAX_THETA_DIFF_UNLOCK = 0.01;
@@ -134,20 +130,6 @@ namespace MiniCube
         double camDist = 100;
         bool inventorMovement = false;
 
-#if (SOLID)
-        //solid vars
-        SldWorks _swApp;
-        MathUtility swMathUtility;
-        MathTransform orientation;
-        bool _solidStartedByForm = false;
-        bool solidRunning = false;
-        bool solidDoc = false;
-        int solidFrameInterval;
-        System.Threading.Timer solidFrameTimerT;
-        bool solidFrameTimerTEnabled = false;
-        static Mutex solidFrameMutex = new Mutex();
-        bool solidMovement = false;
-#endif
         #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Setup %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -159,15 +141,6 @@ namespace MiniCube
             InitializeComponent();
             Console.WriteLine("Initializing...");
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(CloseHandler);
-#if (INV)
-            Debug.WriteLine("Inventor...");
-            StartInventor();
-#endif
-
-#if (SOLID)
-            Debug.WriteLine("Solid...");
-            StartSolid();
-#endif
 
 #if (SERVER)
             server = new Server(this);
@@ -175,6 +148,7 @@ namespace MiniCube
 #endif
 
 #if (DEBUGGER)
+            StartInventor();
             Debug.WriteLine("Enter Debugg Mode!");
             debugger = new DebugForm(this);
 #endif
@@ -197,20 +171,11 @@ namespace MiniCube
 
         private void SetTimers()
         {
-#if (INV)
-            inventorFrameInterval = (int)(1000 / iFPS);
+
 #if (DEBUGGER)
+            inventorFrameInterval = (int)(1000 / iFPS);
             inventorFrameTimerT = new System.Threading.Timer(InventorFrameDebug, null, Timeout.Infinite, Timeout.Infinite);
-#else
-            inventorFrameTimerT = new System.Threading.Timer(InventorFrameT, null, Timeout.Infinite, Timeout.Infinite);
 #endif
-
-#endif
-#if (SOLID)
-            solidFrameInterval = (int)(1000 / sFPS);
-            solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, Timeout.Infinite, Timeout.Infinite);
-#endif
-
             pingTimerInterval = 2000;
 
             pingTimerT = new System.Threading.Timer(PingT, null, Timeout.Infinite, Timeout.Infinite);
@@ -657,27 +622,18 @@ namespace MiniCube
                             double diffTheta = oldQuat.Angle - quat.Angle;
                             Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
 
+#if (DEBUGGER)
                             //activate frame timer if detected movement
                             if (diffTheta > MAX_THETA_DIFF_LOCK || diffVector.Length > MAX_AXIS_DIFF_LOCK)
                             {
-#if (INV)
+
                                 if (!inventorFrameTimerTEnabled)
                                 {
                                     if (inventorFrameTimerT.Change(inventorFrameInterval, inventorFrameInterval)) inventorFrameTimerTEnabled = true;
                                 }
 #endif
-#if (SOLID)
-                                if (!solidFrameTimerTEnabled)
-                                {
-                                    if (solidFrameTimerT.Change(solidFrameInterval, solidFrameInterval)) solidFrameTimerTEnabled = true;
-                                }
-#endif
-                            }
-                            //TODO: decide whats better.
-                            /*else
-                            {
-                                if (inventorFrameTimer.Enabled) inventorFrameTimer.Stop(); //move this within the FMS timer?
-                            }*/
+
+                        }
                         }
                         finally
                         {
@@ -737,7 +693,6 @@ namespace MiniCube
         {
             debugger.Frame(quat, invCalQuat, worldQuat, camDist);            
         }
-#endif
 
         //for debugger use - display according to pos and up
         public bool InvFrameDisplay(double[] camPos, double[] camUp)
@@ -800,6 +755,7 @@ namespace MiniCube
 #endif
             return true;
         }
+#endif
 
 
         //TODO: make a good filter.
@@ -922,7 +878,7 @@ namespace MiniCube
         //and also send a ping over serial.
         private void PingT(object myObject)
         {
-#if (INV)
+#if (DEBUGGER)
             if (!inventorRunning)
             {
                 try
@@ -935,34 +891,15 @@ namespace MiniCube
                     inventorRunning = false;
                 }
             }
-#endif
-#if (SOLID)
-            if (!solidRunning)
-            {
-                try
-                {
-                    _swApp = (SldWorks)Marshal.GetActiveObject("SldWorks.Application");
-                    solidRunning = true;
-                }
-                catch (Exception ex)
-                {
-                    solidRunning = false;
-                }
-            }
-#endif
-#if (SOLID)
-#if (INV)
-            if (!solidRunning && !inventorRunning && !serverStarted)
-#else
-            if (!solidRunning && !serverStarted)
-#endif
-#else
-#if (INV)
+#if (SERVER)
             if (!inventorRunning && !serverStarted)
 #else
+            if (!inventorRunning)
+#endif
+#else
+#if (SERVER)
             if (!serverStarted)
 #endif
-                if (!inventorRunning && !serverStarted)
 #endif
             {
                 this.BeginInvoke(new SimpleDelegate(delegate
@@ -980,13 +917,9 @@ namespace MiniCube
                 {
                     //TODO: "close" port if error
                     pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
-#if (INV)
+#if (DEBUGGER)
                     if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
 #endif
-#if (SOLID)
-                    if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
-#endif
-
                     MessageBox.Show("Oh no! can't write to port!\n" + ex.ToString());
 
                 }
@@ -995,15 +928,10 @@ namespace MiniCube
             else
             {
                 pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
-#if (INV)
+#if (DEBUGGER)
                 if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
 #endif
-#if (SOLID)
-                if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
-#endif
             }
-
-
         }
 
         //Hopefully, it's enough that the DataRecieved uses BeginInvoke.
@@ -1022,11 +950,8 @@ namespace MiniCube
             {
                 //timers were definitely already created at this stage
                 pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
-#if (INV)
+#if (DEBUGGER)
                 if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
-#endif
-#if (SOLID)
-                if (solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) solidFrameTimerTEnabled = false;
 #endif
 #if (SERVER)
                 server.stopServer();
@@ -1116,13 +1041,8 @@ namespace MiniCube
         {
             unInvertedQuat = new Quaternion();
             invCalQuat = new Quaternion();
-#if (INV)
-            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
-#endif
-#if (SOLID)
-            new TimerDelegate(SolidFrameT).BeginInvoke(null, null, null);
-#endif
 #if (DEBUGGER)
+            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
             debugger.BeginInvoke(new SimpleDelegate(debugger.UpdateDisplayCal));
 #endif
         }
@@ -1136,13 +1056,8 @@ namespace MiniCube
             unInvertedQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
             invCalQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
             invCalQuat.Invert();
-#if (INV)
-            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
-#endif
-#if (SOLID)
-            new TimerDelegate(SolidFrameT).BeginInvoke(null, null, null);
-#endif
 #if (DEBUGGER)
+            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
             debugger.BeginInvoke(new SimpleDelegate(debugger.UpdateDisplayCal));
 #endif
         }
@@ -1206,10 +1121,8 @@ namespace MiniCube
             Thread.Sleep(3000);*/
             worldQuat = new Quaternion(quat.X, quat.Y, quat.Z, quat.W);
             mpuStable = true;
-#if (INV)
-            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
-#endif
 #if (DEBUGGER)
+            new TimerDelegate(InventorFrameT).BeginInvoke(null, null, null);
             debugger.BeginInvoke(new SimpleDelegate(debugger.UpdateDisplayCal));
 #endif
         }
@@ -1250,7 +1163,7 @@ namespace MiniCube
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Obsolete %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         #region Obsolete
-#if (INV)
+#if (DEBUGGER)
         private void StartInventor()
         {
             try
@@ -1322,7 +1235,6 @@ namespace MiniCube
                 {
                     try
                     {
-                        //TODO: this doesn't necesarily throw exception when inventor is off
                         //avoid exceptions if possible
                         if (_invApp.ActiveView != null)
                         {
@@ -1422,159 +1334,11 @@ namespace MiniCube
         }
 #endif
 
-#if (SOLID)
-        private void StartSolid()
-        {
-            try
-            {
-                _swApp = (SldWorks)Marshal.GetActiveObject("SldWorks.Application");
-                solidRunning = true;
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    Type swAppType = Type.GetTypeFromProgID("SldWorks.Application");
-                    _swApp = (SldWorks)System.Activator.CreateInstance(swAppType);
-                    _swApp.Visible = true;
-                    _solidStartedByForm = true;
-                    solidRunning = true;
-                }
-                catch (Exception ex2)
-                {
-                    MessageBox.Show(ex2.ToString());
-                    MessageBox.Show("Unable to get or start Solid");
-                    return;
-                }
-            }
-            swMathUtility = (MathUtility)_swApp.GetMathUtility();
-            orientation = swMathUtility.CreateTransform(new double[1]);
-        }
-
-        //method for updating the solid cam view
-        private void SolidFrameT(object myObject)//Vector3D a, Double theta)
-        {
-            Stopwatch stopWatch = new Stopwatch();
-            double[] times = new double[8];
-            stopWatch.Start();
-
-            if (solidFrameMutex.WaitOne(0))
-            {
-                //no update over "noise", no update during calibration
-                if (!MovementFilter() || !mpuStable)
-                {
-                    solidFrameMutex.ReleaseMutex();
-                    return;
-                }
-                lastLockedQuat = quat;
-                Quaternion tempQuat = GetCorrectedQuat();
-                Vector3D a = tempQuat.Axis;
-                double theta = tempQuat.Angle;
-                theta *= Math.PI / 180;
-                //move object instead of the camera
-                theta = -theta;
-
-                //0 ms
-                times[0] = stopWatch.ElapsedMilliseconds;
-                //avoid exceptions if possible before actually updating the frame
-                if (solidRunning)
-                {
-                    try
-                    {
-                        if (!solidDoc)
-                        {
-                            //5-19 ms
-                            if (_swApp.ActiveDoc != null)
-                            {
-                                solidDoc = true;
-                            }
-                        }
-                        //avoiding exceptions if possible                        
-                        if (solidDoc)
-                        {
-                            times[1] = stopWatch.ElapsedMilliseconds;
-                            //5-14 ms
-                            IModelDoc doc = _swApp.ActiveDoc;
-                            try
-                            {
-                                times[2] = stopWatch.ElapsedMilliseconds;
-                                //4-6 ms somehow solid won't allow this to happen at once
-                                IModelView view = doc.ActiveView;
-                                times[3] = stopWatch.ElapsedMilliseconds;
-                                tempQuat.Invert();
-                                double[,] rotation = QuatToRotation(tempQuat);
-                                //TODO: translate :(
-                                //15-23 ms no need to translate just yet!
-                                //MathTransform translate = view.Translation3;
-                                //TODO: rescale :(
-                                //no need to rescale yet either
-                                //double scale = view.Scale2;
-                                times[4] = stopWatch.ElapsedMilliseconds;
-                                double[] tempArr = new double[16];
-                                //new X axis
-                                tempArr[0] = rotation[0, 0];
-                                tempArr[1] = rotation[1, 0];
-                                tempArr[2] = rotation[2, 0];
-                                //new Y axis
-                                tempArr[3] = rotation[0, 1];
-                                tempArr[4] = rotation[1, 1];
-                                tempArr[5] = rotation[2, 1];
-                                //new Z axis
-                                tempArr[6] = rotation[0, 2];
-                                tempArr[7] = rotation[1, 2];
-                                tempArr[8] = rotation[2, 2];
-                                //translation - doesn't mater for orientation!
-                                tempArr[9] = 0;
-                                tempArr[10] = 0;
-                                tempArr[11] = 0;
-                                //scale - doesn't mater for orientation!
-                                tempArr[12] = 1;
-                                //?
-                                tempArr[13] = 0;
-                                tempArr[14] = 0;
-                                tempArr[15] = 0;
-                                //? ms
-                                orientation.ArrayData = tempArr;
-                                times[5] = stopWatch.ElapsedMilliseconds;
-                                //? ms
-                                view.Orientation3 = orientation;
-                                times[6] = stopWatch.ElapsedMilliseconds;
-                                //? ms
-                                view.RotateAboutCenter(0, 0);
-                                //view.GraphicsRedraw(new int[] { });
-                                times[7] = stopWatch.ElapsedMilliseconds;
-
-                            }
-                            //no active view
-                            catch (Exception ex)
-                            {
-                                solidDoc = false;
-                                //MessageBox.Show("Unable to rotate Solid Camera!\n" + ex.ToString());
-                            }
-                        }
-                    }
-                    //no _swApp
-                    catch (Exception ex)
-                    {
-                        solidRunning = false;
-                        MessageBox.Show("Oh no! Something went wrong with Solid!\n" + ex.ToString());
-                    }
-                }
-                solidFrameMutex.ReleaseMutex();
-                stopWatch.Stop();
-                Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1]-times[0], times[2]-times[1], 
-                    times[3]-times[2], times[4]-times[3], times[5]-times[4], times[6]-times[5], times[7] - times[6], times[7]);
-            }
-            else
-            {
-                Debug.WriteLine("solid frame mutex block");
-            }
-        }
-#endif
+#endregion
 
     }
 }
-#endregion
+
 
 //TODO mutiple Cubes, Cube sleep, Autodetect.
 
