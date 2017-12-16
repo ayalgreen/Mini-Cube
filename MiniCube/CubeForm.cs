@@ -631,9 +631,8 @@ namespace MiniCube
                                 {
                                     if (inventorFrameTimerT.Change(inventorFrameInterval, inventorFrameInterval)) inventorFrameTimerTEnabled = true;
                                 }
+                            }
 #endif
-
-                        }
                         }
                         finally
                         {
@@ -693,7 +692,7 @@ namespace MiniCube
         {
             debugger.Frame(quat, invCalQuat, worldQuat, camDist);            
         }
-
+#endif
         //for debugger use - display according to pos and up
         public bool InvFrameDisplay(double[] camPos, double[] camUp)
         {
@@ -755,7 +754,6 @@ namespace MiniCube
 #endif
             return true;
         }
-#endif
 
 
         //TODO: make a good filter.
