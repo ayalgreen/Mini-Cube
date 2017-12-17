@@ -52,6 +52,7 @@ namespace MiniCube
         int BAUD_RATE = 38400;
         string serialComPort = "COM9";
         int iFPS = 60;
+        int BTTimeoutSeconds = 6;
         double MAX_THETA_DIFF_LOCK = 0.05;
         double MAX_AXIS_DIFF_LOCK = 0.0005;
         double MAX_THETA_DIFF_UNLOCK = 0.01;
@@ -257,7 +258,7 @@ namespace MiniCube
             times[0] = connectWatch.ElapsedMilliseconds;
 #endif
             //timeout for the connection 'try'
-            if (!portOpenerThread.Join(TimeSpan.FromSeconds(4)))
+            if (!portOpenerThread.Join(TimeSpan.FromSeconds(BTTimeoutSeconds)))
             {
 #if (CONNECTMON)
                 times[1] = connectWatch.ElapsedMilliseconds;

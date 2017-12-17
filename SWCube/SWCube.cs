@@ -288,7 +288,7 @@ namespace SWCube
 #if (FRAMEMON)
                 times[0] = stopWatch.ElapsedMilliseconds;
 #endif
-                //release if no movement. but if no mouse, try to get a mouse!
+                //TODO: release if no movement. but if no mouse, try to get a mouse!
                 if ((mouseSelected) && (!mpuStable || !MovementFilter()) )
                 {
                     solidFrameMutex.ReleaseMutex();
@@ -345,8 +345,22 @@ namespace SWCube
                         if (mouseSelected == false)
                         {
                             theMouse = view.GetMouse();
-                            theMouse.MouseSelectNotify += MouseClick;
-                            mouseSelected = true;                            
+                            theMouse.MouseSelectNotify += MouseSelect;
+                            theMouse.MouseLBtnUpNotify += ClearSelection;
+                            mouseSelected = true;
+                            /*swDocumentTypes_e type = (swDocumentTypes_e)doc.GetType();
+                            switch (type)
+                            {
+                                case swDocumentTypes_e.swDocASSEMBLY:
+                                    ((AssemblyDoc)doc).ClearSelectionsNotify += ClearSelection;
+                                    break;
+                                case swDocumentTypes_e.swDocDRAWING:
+                                    ((DrawingDoc)doc).ClearSelectionsNotify += ClearSelection;
+                                    break;
+                                case swDocumentTypes_e.swDocPART:
+                                    ((PartDoc)doc).ClearSelectionsNotify += ClearSelection;
+                                    break;
+                            } */                           
                         }
                         //TODO: translate :(
                         //15-23 ms no need to translate just yet!
@@ -500,12 +514,22 @@ namespace SWCube
             return true;
         }
 
-        public int MouseClick(int Ix, int Iy, double X, double Y, double Z)
+        public int MouseSelect(int Ix, int Iy, double X, double Y, double Z)
         {
             rotationCenter[0] = X;
             rotationCenter[1] = Y;
             rotationCenter[2] = Z;
             rotationCenterChanged = true;
+            return 1;
+        }
+
+        public int ClearSelection(int Ix, int Iy, int wParam)
+        {
+            rotationCenter[0] = 0;
+            rotationCenter[1] = 0;
+            rotationCenter[2] = 0;
+            rotationCenterChanged = true;
+
             return 1;
         }
 
