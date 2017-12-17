@@ -56,12 +56,13 @@ namespace SWCube
         static Mutex solidFrameMutex = new Mutex();
         static Mutex ServerConnectMutex = new Mutex();
         bool mouseSelected = false;
+        bool rotationCenterChanged = false;
 
         //static vars
         Quaternion displayQuat;
         Quaternion lastDisplayQuat;
         double[] rotationCenter = {0, 0, 0};
-        double[] rotationCenter1 = { 1, 1, 1 };
+        double[,] rotCenterTransCorrection;
         Queue quatQueue;
         int queueBufferSize = 3; //TODO: get from server?
         int queueSize = 0;
@@ -113,13 +114,13 @@ namespace SWCube
             orientation = swMathUtility.CreateTransform(new double[1]);
             controlThread = new Control();
             controlThread.CreateControl();
-            _swApp.SendMsgToUser2("Press OK when server is up!",
+            /*_swApp.SendMsgToUser2("Press OK when server is up!",
                 (int)swMessageBoxIcon_e.swMbInformation,
-                (int)swMessageBoxBtn_e.swMbOk);
-            //TODO: add timer to repeatedly trying to connect.
+                (int)swMessageBoxBtn_e.swMbOk);*/
             ConnectClient();
             solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, Timeout.Infinite, Timeout.Infinite);
             serverConnectTimer = new System.Threading.Timer(ServerConnectT, null, Timeout.Infinite, Timeout.Infinite);
+            rotCenterTransCorrection = TransToTransformation(0, 0, 0);
             StartFrameTimer();
             return true;
         }
@@ -287,7 +288,8 @@ namespace SWCube
 #if (FRAMEMON)
                 times[0] = stopWatch.ElapsedMilliseconds;
 #endif
-                if ((mouseSelected || true) && (!mpuStable || !MovementFilter()) )
+                //release if no movement. but if no mouse, try to get a mouse!
+                if ((mouseSelected) && (!mpuStable || !MovementFilter()) )
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
@@ -353,11 +355,27 @@ namespace SWCube
                         //no need to rescale yet either
                         //double scale = view.Scale2;
                         //double[,] rotation = QuatToRotation(displayQuat);
+                        
+                        /*Debug.WriteLine("{0} {1} {2} {3}", data[0], data[3], data[6], data[9]);
+                        Debug.WriteLine("{0} {1} {2} {3}", data[1], data[4], data[7], data[10]);
+                        Debug.WriteLine("{0} {1} {2} {3}", data[2], data[5], data[8], data[11]);
+                        Debug.WriteLine("{0} {1} {2} {3}", data[13], data[14], data[15], data[12]);*/
+
                         double[,] transformation = QuatToTransformation(displayQuat);
                         double[,] translate = TransToTransformation(-rotationCenter[0], -rotationCenter[1], -rotationCenter[2]);
                         transformation = MatMult(transformation, translate);
                         translate = TransToTransformation(rotationCenter[0], rotationCenter[1], rotationCenter[2]);
                         transformation = MatMult(translate, transformation);
+
+                        if (rotationCenterChanged)
+                        {
+                            double[] data = view.Orientation3.ArrayData;
+                            rotCenterTransCorrection = TransToTransformation(data[9]-transformation[0, 3],
+                                                        data[10] - transformation[1, 3], data[11] - transformation[2, 3]);
+                            rotationCenterChanged = false;
+                        }
+                        //TODO: a break here causes debugger meltdown (particularly, if trying to 'reconnect' after resuming. WHY?
+                        transformation = MatMult(rotCenterTransCorrection, transformation);
 
                         double[] tempArr = TransformationToArray(transformation);
 
@@ -365,7 +383,9 @@ namespace SWCube
                         times[3] = stopWatch.ElapsedMilliseconds;
 #endif
                         orientation.ArrayData = tempArr;
+                        //TODO calculating the translation makes it MUCH slower.
                         view.Orientation3 = orientation;
+                        //old code
                         //view.RotateAboutCenter(0, 0);
 #if (FRAMEMON)
                         times[4] = stopWatch.ElapsedMilliseconds;
@@ -485,6 +505,7 @@ namespace SWCube
             rotationCenter[0] = X;
             rotationCenter[1] = Y;
             rotationCenter[2] = Z;
+            rotationCenterChanged = true;
             return 1;
         }
 

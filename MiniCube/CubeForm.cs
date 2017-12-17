@@ -22,7 +22,8 @@
 //#define BT
 //#define DEBUGGER    
 //#define DEBUGG      //show mutex blocks
-#define QUATREADMON
+//#define QUATREADMON
+#define CONNECTMON //monitor the opening/aborting of port connection
 #define SYNCMON
 #define SERVER
 
@@ -242,24 +243,48 @@ namespace MiniCube
                     portOpenerThread.Abort();
                 }
             }
+            //wait in case port was recently closed. 200ms did it on my PC..
+            Thread.Sleep(500);
+#if (CONNECTMON)
+            Stopwatch connectWatch = new Stopwatch();
+            connectWatch.Start();
+            long[] times = new long[5];
+#endif
             //this doesnt terminate previous thread
             portOpenerThread = new Thread(this.OpenPortExecution);
             portOpenerThread.Start();
+#if (CONNECTMON)
+            times[0] = connectWatch.ElapsedMilliseconds;
+#endif
             //timeout for the connection 'try'
-            if (!portOpenerThread.Join(TimeSpan.FromSeconds(3)))
+            if (!portOpenerThread.Join(TimeSpan.FromSeconds(4)))
             {
+#if (CONNECTMON)
+                times[1] = connectWatch.ElapsedMilliseconds;
+#endif
+
                 portOpenerThread.Abort();
+#if (CONNECTMON)
+                times[2] = connectWatch.ElapsedMilliseconds;
+#endif
                 //moved to whithin catch clause
                 //portError = true;
                 //Debug.WriteLine("could not open port " + serialPort1.PortName);
             }
             if (this.IsHandleCreated)
             {
+#if (CONNECTMON)
+                times[3] = connectWatch.ElapsedMilliseconds;
+#endif
                 this.BeginInvoke(new SimpleDelegate(delegate
                 {
                     buttonReconnect.Text = "Reconnect";
                     buttonReconnect.Enabled = true;
                 }));
+#if (CONNECTMON)
+                times[4] = connectWatch.ElapsedMilliseconds;
+                Debug.WriteLine("connect/abort times: {0}, {1}, {2}, {3}, {4}", times[0], times[1]-times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3]);
+#endif
             }
             if (!cubeConnected)
             {
@@ -278,8 +303,7 @@ namespace MiniCube
                 {
                     Debug.WriteLine("Port opened.");
                     //TODO move to BT section
-                    cubeConnected = true;
-                    this.Icon = Properties.Resources.on;
+                    cubeConnected = true;                  
                 }
                 else
                 {
@@ -292,7 +316,7 @@ namespace MiniCube
             {
                 portError = true;
                 //MessageBox.Show("Could not open port " + serialPort1.PortName);
-                Debug.WriteLine("Could not open port " + serialPort1.PortName);
+                Debug.WriteLine("Could not open port " + serialPort1.PortName + ": " + ex.Message);
                 return;
             }
             quatReadingsWatch.Start();
@@ -444,11 +468,11 @@ namespace MiniCube
         }
 #endif
 
-        #endregion
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Comm Protocol %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        #region Cube Comm Protocol
+#region Cube Comm Protocol
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
@@ -516,15 +540,18 @@ namespace MiniCube
                                     //TODO: after long (50 sec) debug break in Stable() (after clicking calibrate) gets deadlocked on this
 #if (SYNCMON)
                                     Debug.Write((char)ch);
+#endif
                                     noSync = true;
                                     noFullSync = true;
-#endif
+
                                     continue;  // initial synchronization - also used to resync/realign if needed
                                 }
-#if (SYNCMON)
+
                                 if (noSync)
                                 {
+#if (SYNCMON)
                                     Debug.WriteLine("Sync Started..");
+#endif
                                     /*old code: (if brought back, nosync must be more than a debug var!!)
                                     //if regained sync after calibration, should wait for stabilization, adjust heading, and change view.
                                     if (mpuCalibrating)
@@ -536,7 +563,7 @@ namespace MiniCube
                                     }*/
                                     noSync = false;
                                 }                                
-#endif
+
                                 synced = true;                                
 
                                 if ((serialCount == 1 && ch != 2)
@@ -545,10 +572,10 @@ namespace MiniCube
                                 {
                                     serialCount = 0;
                                     synced = false;
-#if (SYNCMON)
+
                                     noSync = true;
                                     noFullSync = true;
-#endif
+
                                     continue;
                                 }
                                 //TODO: only needed as long as close sequence/reconnect may alter serialCount
@@ -558,13 +585,22 @@ namespace MiniCube
                                     //congrats! we have a new packet. 
                                     if (serialCount == 14)
                                     {
-#if (SYNCMON)
+
                                         if (noFullSync)
                                         {
+                                            if (this.IsHandleCreated)
+                                            {
+                                                this.BeginInvoke(new SimpleDelegate(delegate
+                                                {
+                                                    this.Icon = Properties.Resources.on;
+                                                }));
+                                            }
+#if (SYNCMON)
                                             Debug.WriteLine("Sync complete!");
+#endif
                                             noFullSync = false;
                                         }
-#endif
+
                                         //restart packet byte position
                                         serialCount = 0;
                                         //synced has to be false for serial count 0, so that messages can be displayed
@@ -737,7 +773,7 @@ namespace MiniCube
                 {
                     try
                     {
-                        //TODO: this doesn't necesarily throw exception when inventor is off
+                        //this doesn't necesarily throw exception when inventor is off - obsolete
                         //avoid exceptions if possible
                         if (_invApp.ActiveView != null)
                         {
@@ -787,7 +823,7 @@ namespace MiniCube
         }
 
 
-        //TODO: make a good filter.
+        //make a good filter. - obsolete
         //function that checks whether an actual movement of the cube was made
         public bool MovementFilter()
         {
@@ -920,22 +956,16 @@ namespace MiniCube
                     inventorRunning = false;
                 }
             }
-#if (SERVER)
-            if (!inventorRunning && !serverStarted)
-#else
+
             if (!inventorRunning)
-#endif
-#else
-#if (SERVER)
-            if (!serverStarted)
-#endif
-#endif
             {
                 this.BeginInvoke(new SimpleDelegate(delegate
                 {
                     this.Close();
                 }));         
             }
+#endif
+            
             if (serialPort1.IsOpen)
             {
                 try
@@ -952,7 +982,6 @@ namespace MiniCube
                     MessageBox.Show("Oh no! can't write to port!\n" + ex.ToString());
 
                 }
-
             }
             else
             {
@@ -979,6 +1008,7 @@ namespace MiniCube
             {
                 //timers were definitely already created at this stage
                 pingTimerT.Change(Timeout.Infinite, Timeout.Infinite);
+                BTTimer.Change(Timeout.Infinite, Timeout.Infinite);
 #if (DEBUGGER)
                 if (inventorFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite)) inventorFrameTimerTEnabled = false;
 #endif
@@ -1034,7 +1064,7 @@ namespace MiniCube
                 {
                     if (serialPort1.IsOpen)
                     {                        
-                        //TODO: can get stuck here!
+                        //TODO: can get stuck here! if tryin to close after connected cube is turned off
                         buttonReconnect.Text = "Closing";
                         serialPort1.Close();
                         Debug.WriteLine("port closed properly");
@@ -1190,11 +1220,11 @@ namespace MiniCube
             server = new Server(this);
             serverStarted = true;
         }
-        #endregion
+#endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Obsolete %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        #region Obsolete
+#region Obsolete
 #if (DEBUGGER)
         private void StartInventor()
         {
