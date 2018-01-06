@@ -34,6 +34,8 @@ namespace SWCube
         int sFPS = 1000;
         String CONNECT_MESSAGE = "Solid";
         String GET_QUAT_MESSAGE = "getQuat000";
+        String GET_ZOOM_MESSAGE = "getZoom000";
+        String GET_PAN_MESSAGE = "getPan0000";
         String DISCONNECT_MESSAGE = "Disconnect0";
         String CONNECTED_REPLY = "Connected";
 
@@ -44,6 +46,7 @@ namespace SWCube
         public SldWorks _swApp;
         MathUtility swMathUtility;
         MathTransform orientation;
+        MathVector translation;
         public Mouse theMouse;
 
         private int mSWCookie;
@@ -61,6 +64,9 @@ namespace SWCube
         //static vars
         Quaternion displayQuat;
         Quaternion lastDisplayQuat;
+        int zoom = 1;
+        double[] panSpeed = {0, 0, 0};
+        bool panning = false;
         double[] rotationCenter = {0, 0, 0};
         double[,] rotCenterTransCorrection;
         Queue quatQueue;
@@ -112,6 +118,7 @@ namespace SWCube
             bool result = _swApp.SetAddinCallbackInfo(0, this, Cookie);
             swMathUtility = (MathUtility)_swApp.GetMathUtility();
             orientation = swMathUtility.CreateTransform(new double[1]);
+            translation = swMathUtility.CreateVector(new double[1]);
             controlThread = new Control();
             controlThread.CreateControl();
             /*_swApp.SendMsgToUser2("Press OK when server is up!",
@@ -285,6 +292,8 @@ namespace SWCube
                 stopWatch.Start();
 #endif
                 GetCorrectedQuat();
+                GetZoom();
+                GetPanSpeed();
 #if (FRAMEMON)
                 times[0] = stopWatch.ElapsedMilliseconds;
 #endif
@@ -395,10 +404,20 @@ namespace SWCube
 
 #if (FRAMEMON)
                         times[3] = stopWatch.ElapsedMilliseconds;
-#endif
+#endif                        
                         orientation.ArrayData = tempArr;
                         //TODO calculating the translation makes it MUCH slower.
                         view.Orientation3 = orientation;
+
+                        double[] tempArr2 = {panSpeed[0], panSpeed[1], panSpeed[2]};
+                        double[] currArray = view.Translation3.ArrayData;
+                        tempArr2[0] += currArray[0];
+                        tempArr2[1] += currArray[1];
+                        tempArr2[2] += currArray[2];
+
+                        translation.ArrayData = tempArr2;
+                        view.Translation3 = translation;
+                                             
                         //old code
                         //view.RotateAboutCenter(0, 0);
 #if (FRAMEMON)
@@ -470,11 +489,106 @@ namespace SWCube
             displayQuat.Invert();
         }
 
+        //method for getting the current zoom from server
+        public void GetZoom()
+        {
+            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_ZOOM_MESSAGE);
+            try
+            {
+                clientStream.Write(data, 0, data.Length);
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine("Error writing to server!");
+                DisconnectServer();
+                return;
+            }
+            int readBytes = 0;
+            while (readBytes < 4)
+            {
+                //TODO: wait to complete the data
+                data = new Byte[4];
+                // Read batch of the TcpServer response bytes.
+                Int32 bytes;
+                try
+                {
+                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
+                    readBytes += bytes;
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("Error reading from server!");
+                    DisconnectServer();
+                    return;
+                }
+            }
+            zoom = BitConverter.ToInt32(data, 0);
+        }
+
+        //method for getting the current panning speed
+        public void GetPanSpeed()
+        {
+            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_PAN_MESSAGE);
+            try
+            {
+                clientStream.Write(data, 0, data.Length);
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine("Error writing to server!");
+                DisconnectServer();
+                return;
+            }
+            int readBytes = 0;
+            while (readBytes < 12)
+            {
+                //TODO: wait to complete the data
+                data = new Byte[12];
+                // Read batch of the TcpServer response bytes.
+                Int32 bytes;
+                try
+                {
+                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
+                    readBytes += bytes;
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("Error reading from server!");
+                    DisconnectServer();
+                    return;
+                }
+            }
+            float X = BitConverter.ToSingle(data, 0);
+            float Y = BitConverter.ToSingle(data, 4);
+            float Z = BitConverter.ToSingle(data, 8);
+            double panNorm = Math.Sqrt(X * X + Y * Y + Z * Z);
+            //Debug.WriteLine("{0}, {1}: {2}", X, Y, panNorm);
+            if (panNorm > 0)
+            {
+                panning = true;
+                panSpeed[0] = X / (1000 * 20);
+                panSpeed[1] = Y / (1000 * 20);
+                panSpeed[2] = Z / (1000 * 20);
+            }
+            else
+            {
+                panning = false;
+                panSpeed[0] = 0;
+                panSpeed[1] = 0;
+                panSpeed[2] = 0;
+            }
+
+        }
+
 
         //TODO: make a good filter.
         //function that checks whether an actual movement of the cube was made
         private bool MovementFilter()
         {
+            if (panning)
+            {
+                return true;
+            }
             if (queueSize < queueBufferSize-1)
             {
                 quatQueue.Enqueue(displayQuat);

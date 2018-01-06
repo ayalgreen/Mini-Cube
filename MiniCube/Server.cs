@@ -243,6 +243,14 @@ namespace MiniCube
                     {
                         SendQuat(stream, false);
                     }
+                    else if (dataString == "getZoom000")
+                    {
+                        SendZoom(stream, false);
+                    }
+                    else if (dataString == "getPan0000")
+                    {
+                        SendPanSpeed(stream, false);
+                    }
                     else if (dataString == "Disconnet0")
                     {
                         break;
@@ -294,6 +302,55 @@ namespace MiniCube
             stream.Write(response, 0, response.Length);
             //Debug.WriteLine("wrote response");
         }
+
+        public void SendPanSpeed(NetworkStream stream, bool isWebSocket)
+        {
+            float[] panSpeed = cube.GetPanSpeed();
+            MemoryStream memStream = new MemoryStream();
+
+            Byte[] XBytes = BitConverter.GetBytes(panSpeed[0]);
+            Byte[] YBytes = BitConverter.GetBytes(panSpeed[1]);
+            Byte[] ZBytes = BitConverter.GetBytes(panSpeed[2]);
+
+            if (isWebSocket)
+            {
+                Byte[] headerBytes = new Byte[2] { (Byte)130, (Byte)16 };
+                memStream.Write(headerBytes, 0, headerBytes.Length);
+                //taking care of Endianess js conventation
+                Array.Reverse(XBytes);
+                Array.Reverse(YBytes);
+                Array.Reverse(ZBytes);
+            }
+
+            memStream.Write(XBytes, 0, 4);
+            memStream.Write(YBytes, 0, 4);
+            memStream.Write(ZBytes, 0, 4);
+            Byte[] response = memStream.ToArray();
+            stream.Write(response, 0, response.Length);
+            //Debug.WriteLine("wrote response");
+        }
+
+        public void SendZoom(NetworkStream stream, bool isWebSocket)
+        {
+            int zoom = cube.GetZoom();
+            MemoryStream memStream = new MemoryStream();
+
+            Byte[] zoomBytes = BitConverter.GetBytes(zoom);
+
+
+            if (isWebSocket)
+            {
+                Byte[] headerBytes = new Byte[2] { (Byte)130, (Byte)16 };
+                memStream.Write(headerBytes, 0, headerBytes.Length);
+                //taking care of Endianess js conventation
+                Array.Reverse(zoomBytes);
+            }
+            memStream.Write(zoomBytes, 0, 4);
+            Byte[] response = memStream.ToArray();
+            stream.Write(response, 0, response.Length);
+            //Debug.WriteLine("wrote response");
+        }
+
 
     }
 }

@@ -26,6 +26,7 @@
 #define CONNECTMON //monitor the opening/aborting of port connection
 #define SYNCMON
 #define SERVER
+#define MOUSEPAN
 
 
 using System;
@@ -104,11 +105,14 @@ namespace MiniCube
         Quaternion lastLockedQuat = new Quaternion(0, 0, 0, 1);
         Quaternion invCalQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
         Quaternion worldQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
+        float[] panSpeed = {0, 0, 0};
+        int zoom = 0;
         //receive array from cube
         double[] q = new Double[4];
         bool mpuStable = true;
         bool cubeConnected = false;
         bool calAlgNum2 = false;
+        bool closed = false;
 
         //debug vars
         int dbgcounter = 0;                
@@ -122,6 +126,13 @@ namespace MiniCube
         bool formClose;
         bool noFullSync = true;
         bool noSync = true;
+
+#if (MOUSEPAN)
+        //bind the mouse movement to affect panning
+        bool mousePan = false;
+        Thread mouseWatcherThread;
+        bool mousePanStarted = false;
+#endif
 
         //inventor vars
         Inventor.Application _invApp;
@@ -164,6 +175,10 @@ namespace MiniCube
             {
                 comboBoxPorts.Items.Add(port);
             }
+#if (MOUSEPAN)
+            mouseWatcherThread = new Thread(this.MouseWatcher);
+            this.MouseClick += MouseClickAction;
+#endif
             Debug.WriteLine("Load config...");
             LoadConfig();
             Debug.WriteLine("Set timers...");
@@ -754,6 +769,18 @@ namespace MiniCube
             return new float[4] { (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W};
         }
 
+        //method for getting the panning speed as int array (for server)
+        public float[] GetPanSpeed()
+        {
+            return panSpeed;
+        }
+
+        //method for getting the current zoom (for server)
+        public int GetZoom()
+        {
+            return zoom;
+        }
+
 #if (DEBUGGER)
         //method for updating the inventor cam view via the debugger
         private void InventorFrameDebug(object myObject)
@@ -1005,6 +1032,13 @@ namespace MiniCube
             //TODO: finish close mutex usage. (open/close ports)
             closeLock.EnterWriteLock();
             closeMutexOwner = "CloseSequence";
+            closed = true;
+#if (MOUSEPAN)
+            if (mousePanStarted && !mousePan)
+            {
+                mouseWatcherThread.Resume();
+            }
+#endif            
             try
             {
                 //timers were definitely already created at this stage
@@ -1090,6 +1124,46 @@ namespace MiniCube
         {
             buttonReconnect.Enabled = true;
         }
+
+        private void MouseWatcher()
+        {
+            int X = Cursor.Position.X;
+            int Y = Cursor.Position.Y;
+            while (true && !closed)
+            {
+                if ((X != Cursor.Position.X) || (Y != Cursor.Position.Y)){
+                    this.MouseMove(Cursor.Position.X-X, Cursor.Position.Y - Y);
+                    X = Cursor.Position.X;
+                    Y = Cursor.Position.Y;             
+                }
+                Thread.Sleep(1);
+
+            }
+        }
+
+        private void MouseMove(int xChange, int yChange)
+        {
+            //Debug.WriteLine("moved: {0}, {1}", xChange, yChange);
+            //Debug.WriteLine("speed: {0}, {1}", panSpeed[0], panSpeed[1]);
+            panSpeed[0] += xChange;
+            panSpeed[1] += yChange;
+            float panNorm = (float)Math.Sqrt(panSpeed[0] * panSpeed[0] + panSpeed[1] * panSpeed[1]);
+            if (panNorm > 45)
+            {
+                panSpeed[0] *= 45 / panNorm;
+                panSpeed[1] *= 45 / panNorm;
+            }
+            
+        }
+
+        private void MouseClickAction(object sender, MouseEventArgs e)
+        {
+            //Debug.WriteLine("reset! {0}, {1}", panSpeed[0], panSpeed[1]);
+            panSpeed[0] = 0;
+            panSpeed[1] = 0;
+            panSpeed[2] = 0;
+        }
+
 #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Calibration %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1399,6 +1473,26 @@ namespace MiniCube
 
 #endregion
 
+        private void checkBoxMousePan_CheckedChanged(object sender, EventArgs e)
+        {
+            mousePan = !mousePan;
+            if (mousePan)
+            {
+                if (mousePanStarted)
+                {
+                    mouseWatcherThread.Resume();
+                }
+                else
+                {
+                    mouseWatcherThread.Start();
+                    mousePanStarted = true;
+                }                           
+            }
+            else
+            {
+                mouseWatcherThread.Suspend();
+            }
+        }
     }
 }
 
