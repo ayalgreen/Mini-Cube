@@ -251,6 +251,10 @@ namespace MiniCube
                     {
                         SendPanSpeed(stream, false);
                     }
+                    else if (dataString == "getButtons")
+                    {
+                        SendButtons(stream, false);
+                    }
                     else if (dataString == "Disconnet0")
                     {
                         break;
@@ -346,6 +350,45 @@ namespace MiniCube
                 Array.Reverse(zoomBytes);
             }
             memStream.Write(zoomBytes, 0, 4);
+            Byte[] response = memStream.ToArray();
+            stream.Write(response, 0, response.Length);
+            //Debug.WriteLine("wrote response");
+        }
+
+        public void SendButtons(NetworkStream stream, bool isWebSocket)
+        {
+            int[] buttonClicks = cube.GetButtonClicks();
+            int[] buttonReleases = cube.GetButtonReleases();
+            MemoryStream memStream = new MemoryStream();
+
+            if (isWebSocket)
+            {
+                Byte[] headerBytes = new Byte[2] { (Byte)130, (Byte)16 };
+                memStream.Write(headerBytes, 0, headerBytes.Length);
+            }
+
+            for (int i=0; i<CubeForm.NUM_BUTTONS; i++)
+            {
+                Byte[] bytes = BitConverter.GetBytes(buttonClicks[i]);
+                if (isWebSocket)
+                {
+                    //taking care of Endianess js conventation
+                    Array.Reverse(bytes);
+                }
+                memStream.Write(bytes, 0, 4);
+            }
+
+            for (int i = 0; i < CubeForm.NUM_BUTTONS; i++)
+            {
+                Byte[] bytes = BitConverter.GetBytes(buttonReleases[i]);
+                if (isWebSocket)
+                {
+                    //taking care of Endianess js conventation
+                    Array.Reverse(bytes);
+                }
+                memStream.Write(bytes, 0, 4);
+            }
+
             Byte[] response = memStream.ToArray();
             stream.Write(response, 0, response.Length);
             //Debug.WriteLine("wrote response");

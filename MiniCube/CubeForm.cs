@@ -48,19 +48,30 @@ namespace MiniCube
 {
     public partial class CubeForm : Form
     {
-#region vars
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Variables %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        #region vars
         //Constants
-        int BAUD_RATE = 38400;
-        string serialComPort = "COM9";
+        const int MAX_COUNTER = 100000;
+        const int BAUD_RATE = 38400;
+        //inventor FPS. obsolete (for debugger mode)
         int iFPS = 60;
-        int BTTimeoutSeconds = 6;
-        double MAX_THETA_DIFF_LOCK = 0.05;
-        double MAX_AXIS_DIFF_LOCK = 0.0005;
-        double MAX_THETA_DIFF_UNLOCK = 0.01;
-        double MAX_AXIS_DIFF_UNLOCK = 0.0001;
-        string CUBE_BT_MODULE = "Cube";
-        string BT_PIN = "1234";
-        string path = @"./Cubecnfg";
+        const int BTTimeoutSeconds = 6;
+        const double MAX_THETA_DIFF_LOCK = 0.05;
+        const double MAX_AXIS_DIFF_LOCK = 0.0005;
+        const double MAX_THETA_DIFF_UNLOCK = 0.01;
+        const double MAX_AXIS_DIFF_UNLOCK = 0.0001;
+        const string CUBE_BT_MODULE = "Cube";
+        const string BT_PIN = "1234";
+        const string path = @"./Cubecnfg";
+        public const int NUM_BUTTONS = 6;
+        public const int TOP = 0;
+        public const int BOTTOM = 1;
+        public const int LEFT = 2;
+        public const int RIGHT = 3;
+        public const int FRONT = 4;
+        public const int BACK = 5;
         int[] range3 = new int[3] { 0, 1, 2 };
 
         //delegates
@@ -74,6 +85,7 @@ namespace MiniCube
         bool serverStarted = false;
 
         //comm vars
+        string serialComPort = "";
         SerialPort serialPort1 = new SerialPort();
         bool portError = false;
         System.Threading.Timer BTTimer;
@@ -98,14 +110,14 @@ namespace MiniCube
         Object synchronizerLock = new Object();
         Object packetAnalyzerLock = new Object();
         ReaderWriterLockSlim closeLock = new ReaderWriterLockSlim();
-        
+
         //static vars
         Quaternion quat = new Quaternion(0, 0, 0, 1);
         Quaternion oldQuat = new Quaternion(0, 0, 0, 1);
         Quaternion lastLockedQuat = new Quaternion(0, 0, 0, 1);
         Quaternion invCalQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
         Quaternion worldQuat = new Quaternion(0, 0, 0, 1); //Vect= (0, 1, 0),  Angle=0. Identity.
-        float[] panSpeed = {0, 0, 0};
+        float[] panSpeed = { 0, 0, 0 };
         int zoom = 0;
         //receive array from cube
         double[] q = new Double[4];
@@ -115,10 +127,10 @@ namespace MiniCube
         bool closed = false;
 
         //debug vars
-        int dbgcounter = 0;                
+        int dbgcounter = 0;
         Quaternion unInvertedQuat = new Quaternion(0, 0, 0, 1);
         Stopwatch quatReadingsWatch = new Stopwatch();
-        double [] quatReadingsTimes = new double[10];
+        double[] quatReadingsTimes = new double[10];
         int quatReading = 0;
         int quatReading2 = 0;
         DebugForm debugger;
@@ -127,6 +139,13 @@ namespace MiniCube
         bool noFullSync = true;
         bool noSync = true;
 
+        //button click variable
+        //in order to keep track of button clicks in a way that the clients
+        //don't miss them, button clicks and release will be monitored by
+        //counters which increase the appropriate event
+        int[] buttonClicks = { 0, 0, 0, 0, 0, 0 };
+        int[] buttonReleases = { 0, 0, 0, 0, 0, 0 };
+
 #if (MOUSEPAN)
         //bind the mouse movement to affect panning
         bool mousePan = false;
@@ -134,7 +153,7 @@ namespace MiniCube
         bool mousePanStarted = false;
 #endif
 
-        //inventor vars
+        //inventor vars - obsolete. only for debugger mode
         Inventor.Application _invApp;
         TransientGeometry tg;
         bool _inventorStartedByForm = false;
@@ -151,7 +170,8 @@ namespace MiniCube
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Setup %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-#region Setup
+        #region Setuo
+
         public CubeForm()
         {
             InitializeComponent();
@@ -299,7 +319,7 @@ namespace MiniCube
                 }));
 #if (CONNECTMON)
                 times[4] = connectWatch.ElapsedMilliseconds;
-                Debug.WriteLine("connect/abort times: {0}, {1}, {2}, {3}, {4}", times[0], times[1]-times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3]);
+                Debug.WriteLine("connect/abort times: {0}, {1}, {2}, {3}, {4}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3]);
 #endif
             }
             if (!cubeConnected)
@@ -319,12 +339,12 @@ namespace MiniCube
                 {
                     Debug.WriteLine("Port opened.");
                     //TODO move to BT section
-                    cubeConnected = true;                  
+                    cubeConnected = true;
                 }
                 else
                 {
                     Debug.WriteLine("Could not open port (no exception)");
-                }                
+                }
                 pingTimerT.Change(pingTimerInterval, pingTimerInterval);
             }
             //if can't open port
@@ -370,7 +390,7 @@ namespace MiniCube
                 {
                     serialPort1.Close();
                     Debug.WriteLine("port closed");
-                }                
+                }
             }
             //if can't close port
             catch (Exception ex)
@@ -483,12 +503,11 @@ namespace MiniCube
             }
         }
 #endif
-
-#endregion
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Comm Protocol %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Cube Comm Protocol
+        #region Cube Comm Protocol
         //Method for reading from serial port and passing on to InvokedOnData (as handler on form-thread)
         private void SerialPort1DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
@@ -532,8 +551,8 @@ namespace MiniCube
                 finally
                 {
                     closeLock.ExitReadLock();
-                } 
-            }                  
+                }
+            }
         }
 
         //form-thread method for parsing received data and then calling DisplayFromPort()
@@ -578,9 +597,9 @@ namespace MiniCube
                                         mpuStabilizeTimer.Start();
                                     }*/
                                     noSync = false;
-                                }                                
+                                }
 
-                                synced = true;                                
+                                synced = true;
 
                                 if ((serialCount == 1 && ch != 2)
                                     || (serialCount == 12 && ch != '\r')
@@ -645,7 +664,7 @@ namespace MiniCube
                 }
 
             }
-            
+
         }
 
         private void PacketAnalyzer()
@@ -734,13 +753,13 @@ namespace MiniCube
                     closeLock.ExitReadLock();
                 }
             }
-            
+
         }
-#endregion
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Display %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        //%%%%%%%%%%%%%%%%%%%%%%%%% Server interaction and Debug %%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Display and Server
+        #region Server and Debug
         //method for getting the corrected current quat
         public Quaternion GetCorrectedQuat()
         {
@@ -766,7 +785,7 @@ namespace MiniCube
         public float[] GetCorrectedQuatFloats()
         {
             Quaternion tempQuat = GetCorrectedQuat();
-            return new float[4] { (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W};
+            return new float[4] { (float)tempQuat.X, (float)tempQuat.Y, (float)tempQuat.Z, (float)tempQuat.W };
         }
 
         //method for getting the panning speed as int array (for server)
@@ -780,6 +799,126 @@ namespace MiniCube
         {
             return zoom;
         }
+
+        //method for getting the current button clicks (for server)
+        public int[] GetButtonClicks()
+        {
+            return buttonClicks;
+        }
+
+        //method for getting the current button releases (for server)
+        public int[] GetButtonReleases()
+        {
+            return buttonReleases;
+        }
+
+        private void checkBoxMousePan_CheckedChanged(object sender, EventArgs e)
+        {
+            mousePan = !mousePan;
+            if (mousePan)
+            {
+                if (mousePanStarted)
+                {
+                    mouseWatcherThread.Resume();
+                }
+                else
+                {
+                    mouseWatcherThread.Start();
+                    mousePanStarted = true;
+                }
+            }
+            else
+            {
+                mouseWatcherThread.Suspend();
+            }
+        }
+
+        private void buttonTop_Click(object sender, EventArgs e)
+        {
+            buttonClicks[TOP]++;
+            if (buttonClicks[TOP] == MAX_COUNTER)
+            {
+                buttonClicks[TOP] = 0;
+            }
+            buttonReleases[TOP]++;
+            if (buttonReleases[TOP] == MAX_COUNTER)
+            {
+                buttonReleases[TOP] = 0;
+            }
+        }
+
+        private void buttonBottom_Click(object sender, EventArgs e)
+        {
+            buttonClicks[BOTTOM]++;
+            if (buttonClicks[BOTTOM] == MAX_COUNTER)
+            {
+                buttonClicks[BOTTOM] = 0;
+            }
+            buttonReleases[BOTTOM]++;
+            if (buttonReleases[BOTTOM] == MAX_COUNTER)
+            {
+                buttonReleases[BOTTOM] = 0;
+            }
+        }
+
+        private void buttonLeft_Click(object sender, EventArgs e)
+        {
+            buttonClicks[LEFT]++;
+            if (buttonClicks[LEFT] == MAX_COUNTER)
+            {
+                buttonClicks[LEFT] = 0;
+            }
+            buttonReleases[LEFT]++;
+            if (buttonReleases[LEFT] == MAX_COUNTER)
+            {
+                buttonReleases[LEFT] = 0;
+            }
+        }
+
+        private void buttonRight_Click(object sender, EventArgs e)
+        {
+            buttonClicks[RIGHT]++;
+            if (buttonClicks[RIGHT] == MAX_COUNTER)
+            {
+                buttonClicks[RIGHT] = 0;
+            }
+            buttonReleases[RIGHT]++;
+            if (buttonReleases[RIGHT] == MAX_COUNTER)
+            {
+                buttonReleases[RIGHT] = 0;
+            }
+        }
+
+        private void buttonFront_Click(object sender, EventArgs e)
+        {
+            buttonClicks[FRONT]++;
+            if (buttonClicks[FRONT] == MAX_COUNTER)
+            {
+                buttonClicks[FRONT] = 0;
+            }
+            buttonReleases[FRONT]++;
+            if (buttonReleases[FRONT] == MAX_COUNTER)
+            {
+                buttonReleases[FRONT] = 0;
+            }
+        }
+
+        private void buttonBack_Click(object sender, EventArgs e)
+        {
+            buttonClicks[BACK]++;
+            if (buttonClicks[BACK] == MAX_COUNTER)
+            {
+                buttonClicks[BACK] = 0;
+            }
+            buttonReleases[BACK]++;
+            if (buttonReleases[BACK] == MAX_COUNTER)
+            {
+                buttonReleases[BACK] = 0;
+            }
+        }
+        #endregion
+
+        #region old debugger mode
 
 #if (DEBUGGER)
         //method for updating the inventor cam view via the debugger
@@ -819,7 +958,7 @@ namespace MiniCube
                                 cam.ApplyWithoutTransition();
                                 times[5] = stopWatch.ElapsedMilliseconds;
                             }
-                                                   
+
                             //no active view
                             catch (Exception ex)
                             {
@@ -851,7 +990,7 @@ namespace MiniCube
         }
 
 
-        //make a good filter. - obsolete
+        //make a good filter. - obsolete (doesn't sit in server)
         //function that checks whether an actual movement of the cube was made
         public bool MovementFilter()
         {
@@ -871,11 +1010,11 @@ namespace MiniCube
         {
             return mpuStable;
         }
-#endregion
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Helper Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Helper Functions
+        #region Helper Functions
         //according to http://www.opengl-tutorial.org/assets/faq_quaternions/index.html#Q54
         //NOT according to wikipedia https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion (wtf?)
         public double[,] QuatToRotation(Quaternion a)
@@ -897,15 +1036,16 @@ namespace MiniCube
         }
 
         //returns AB
-        public double[,] MatMultiply(double[,] a, double [,] b)
+        public double[,] MatMultiply(double[,] a, double[,] b)
         {
             double[,] c = new double[3, 3];
             double currSum = 0;
             foreach (int i in range3)
             {
-                foreach(int j in range3)
+                foreach (int j in range3)
                 {
-                    foreach (int k in range3) {
+                    foreach (int k in range3)
+                    {
                         currSum += a[i, k] * b[k, j];
                     }
                     c[i, j] = currSum;
@@ -939,14 +1079,14 @@ namespace MiniCube
             double[,] transMat = new double[3, 3];
             foreach (int i in range3)
             {
-                foreach(int j in range3)
+                foreach (int j in range3)
                 {
                     transMat[i, j] = a[j, i];
                 }
             }
             return transMat;
         }
- 
+
         //equation due to https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
         //seems to also invert the matrix! (wtf?)
         public double[] RotateQuaternion(double x, double y, double z, Vector3D a, double theta)
@@ -957,14 +1097,14 @@ namespace MiniCube
             vect[0] = x * (c + a.X * a.X * (1 - c)) + y * (a.X * a.Y * (1 - c) - a.Z * s) + z * (a.X * a.Z * (1 - c) + a.Y * s);
             vect[1] = x * (a.Y * a.X * (1 - c) + a.Z * s) + y * (c + a.Y * a.Y * (1 - c)) + z * (a.Y * a.Z * (1 - c) - a.X * s);
             vect[2] = x * (a.Z * a.X * (1 - c) - a.Y * s) + y * (a.Z * a.Y * (1 - c) + a.X * s) + z * (c + a.Z * a.Z * (1 - c));
-            
+
             return vect;
         }
-#endregion
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Program Flow %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Program flow
+        #region Program flow
         //a ping timer is started upon port opening.
         //a ping checks for activeness of inventor (shuts down otherwise)
         //and for serial port (shuts down itself and frame clock otherwise)
@@ -993,7 +1133,7 @@ namespace MiniCube
                 }));         
             }
 #endif
-            
+
             if (serialPort1.IsOpen)
             {
                 try
@@ -1098,7 +1238,7 @@ namespace MiniCube
                 try
                 {
                     if (serialPort1.IsOpen)
-                    {                        
+                    {
                         //TODO: can get stuck here! if tryin to close after connected cube is turned off
                         buttonReconnect.Text = "Closing";
                         serialPort1.Close();
@@ -1131,10 +1271,11 @@ namespace MiniCube
             int Y = Cursor.Position.Y;
             while (true && !closed)
             {
-                if ((X != Cursor.Position.X) || (Y != Cursor.Position.Y)){
-                    this.MouseMove(Cursor.Position.X-X, Cursor.Position.Y - Y);
+                if ((X != Cursor.Position.X) || (Y != Cursor.Position.Y))
+                {
+                    this.MouseMove(Cursor.Position.X - X, Cursor.Position.Y - Y);
                     X = Cursor.Position.X;
-                    Y = Cursor.Position.Y;             
+                    Y = Cursor.Position.Y;
                 }
                 Thread.Sleep(1);
 
@@ -1153,7 +1294,7 @@ namespace MiniCube
                 panSpeed[0] *= 45 / panNorm;
                 panSpeed[1] *= 45 / panNorm;
             }
-            
+
         }
 
         private void MouseClickAction(object sender, MouseEventArgs e)
@@ -1164,11 +1305,11 @@ namespace MiniCube
             panSpeed[2] = 0;
         }
 
-#endregion
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Calibration %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Calibration
+        #region Calibration
         private void buttonCalibrate_Click(object sender, EventArgs e)
         {
             new SimpleDelegate(Calibrate).BeginInvoke(null, null);
@@ -1295,11 +1436,11 @@ namespace MiniCube
             server = new Server(this);
             serverStarted = true;
         }
-#endregion
+        #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Obsolete %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#region Obsolete
+        #region Obsolete
 #if (DEBUGGER)
         private void StartInventor()
         {
@@ -1471,31 +1612,12 @@ namespace MiniCube
         }
 #endif
 
-#endregion
+        #endregion
 
-        private void checkBoxMousePan_CheckedChanged(object sender, EventArgs e)
-        {
-            mousePan = !mousePan;
-            if (mousePan)
-            {
-                if (mousePanStarted)
-                {
-                    mouseWatcherThread.Resume();
-                }
-                else
-                {
-                    mouseWatcherThread.Start();
-                    mousePanStarted = true;
-                }                           
-            }
-            else
-            {
-                mouseWatcherThread.Suspend();
-            }
-        }
+
     }
-}
 
+}
 
 //TODO mutiple Cubes, Cube sleep, Autodetect.
 

@@ -176,6 +176,7 @@
             this.buttonTop.TabIndex = 81;
             this.buttonTop.Text = "Top";
             this.buttonTop.UseVisualStyleBackColor = true;
+            this.buttonTop.Click += new System.EventHandler(this.buttonTop_Click);
             // 
             // buttonBottom
             // 
@@ -185,6 +186,7 @@
             this.buttonBottom.TabIndex = 82;
             this.buttonBottom.Text = "Bottom";
             this.buttonBottom.UseVisualStyleBackColor = true;
+            this.buttonBottom.Click += new System.EventHandler(this.buttonBottom_Click);
             // 
             // buttonLeft
             // 
@@ -194,6 +196,7 @@
             this.buttonLeft.TabIndex = 83;
             this.buttonLeft.Text = "Left";
             this.buttonLeft.UseVisualStyleBackColor = true;
+            this.buttonLeft.Click += new System.EventHandler(this.buttonLeft_Click);
             // 
             // buttonRight
             // 
@@ -203,6 +206,7 @@
             this.buttonRight.TabIndex = 84;
             this.buttonRight.Text = "Right";
             this.buttonRight.UseVisualStyleBackColor = true;
+            this.buttonRight.Click += new System.EventHandler(this.buttonRight_Click);
             // 
             // buttonFront
             // 
@@ -212,6 +216,7 @@
             this.buttonFront.TabIndex = 85;
             this.buttonFront.Text = "Front";
             this.buttonFront.UseVisualStyleBackColor = true;
+            this.buttonFront.Click += new System.EventHandler(this.buttonFront_Click);
             // 
             // buttonBack
             // 
@@ -221,6 +226,7 @@
             this.buttonBack.TabIndex = 86;
             this.buttonBack.Text = "Back";
             this.buttonBack.UseVisualStyleBackColor = true;
+            this.buttonBack.Click += new System.EventHandler(this.buttonBack_Click);
             // 
             // CubeForm
             // 
@@ -245,7 +251,7 @@
             this.Controls.Add(this.label27);
             this.Controls.Add(this.buttonCalibrate);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
-            this.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
+            this.Margin = new System.Windows.Forms.Padding(2);
             this.Name = "CubeForm";
             this.Text = "Cube";
             this.ResumeLayout(false);

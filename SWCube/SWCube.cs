@@ -28,6 +28,8 @@ namespace SWCube
     public class SW_Cube : ISwAddin
     {
         
+        #region vars  
+                    
         //Constants
         double MAX_THETA_DIFF_UNLOCK = 0.01;
         double MAX_AXIS_DIFF_UNLOCK = 0.001;//0.0001;
@@ -36,14 +38,42 @@ namespace SWCube
         String GET_QUAT_MESSAGE = "getQuat000";
         String GET_ZOOM_MESSAGE = "getZoom000";
         String GET_PAN_MESSAGE = "getPan0000";
+        String GET_BUTTONS_MESSAGE = "getButtons";
         String DISCONNECT_MESSAGE = "Disconnect0";
         String CONNECTED_REPLY = "Connected";
+        const int NUM_BUTTONS = 6;
+        const int TOP = 0;
+        const int BOTTOM = 1;
+        const int LEFT = 2;
+        const int RIGHT = 3;
+        const int FRONT = 4;
+        const int BACK = 5;
+
+        //keyboard constants
+        const int VK_UP = 0x26; //up key
+        const int VK_DOWN = 0x28;  //down key
+        const int VK_LEFT = 0x25;
+        const int VK_RIGHT = 0x27;
+        const int VK_CONTROL = 0x11;
+        const int VK_0_KEY = 0x30;
+        const int VK_1_KEY = 0x31;
+        const int VK_2_KEY = 0x32;
+        const int VK_3_KEY = 0x33;
+        const int VK_4_KEY = 0x34;
+        const int VK_5_KEY = 0x35;
+        const int VK_6_KEY = 0x36;
+
+        const uint KEYEVENTF_KEYDOWN = 0x0000;
+        const uint KEYEVENTF_KEYUP = 0x0002;
+        const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+
 
         //Delegates
         public delegate void SimpleDelegate();
 
         //solid vars
         public SldWorks _swApp;
+        Process swProcess;
         MathUtility swMathUtility;
         MathTransform orientation;
         MathVector translation;
@@ -74,6 +104,16 @@ namespace SWCube
         int queueSize = 0;
         bool mpuStable = false;
         Control controlThread;
+        //button click variable
+        //in order to keep track of button clicks in a way that the clients
+        //don't miss them, button clicks and release will be monitored by
+        //counters which increase the appropriate event
+        int[] buttonClicks = { 0, 0, 0, 0, 0, 0 };
+        int[] buttonReleases = { 0, 0, 0, 0, 0, 0 };
+        int[] newButtonClicks = { 0, 0, 0, 0, 0, 0 };
+        int[] newButtonReleases = { 0, 0, 0, 0, 0, 0 };
+        //saves whether we moved into "normal to" (side click)
+        bool normalTo = false;
 
         //comm vars
         TcpClient client;
@@ -86,7 +126,18 @@ namespace SWCube
         double[] thetaDiffs = new double[10];
         double[] vectorDiffs = new double[10];
         int quatReadingNum = 0;
+        #endregion
+        //key code: 1-25;, Flags -can be one or more of: 
+        //KEYEVENTF_EXTENDEDKEY 0x0001   -if specified, the scan code was preceded by a prefix byte having the value 0xE0 (224).
+        //KEYEVENTF_KEYUP 0x0002    -If specified, the key is being released. If not specified, the key is being depressed.
+        //keybd_event(byte virtulKeyCode, byte hardwareScanCode, uint dwordFlags, uint dwExtraInfo);
+        [DllImport("user32.dll")]
+        public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);
 
+        [DllImport("user32.dll")]
+        static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        #region setup
         [ComRegisterFunction()]
         private static void ComRegister(Type t)
         {
@@ -113,6 +164,7 @@ namespace SWCube
         public bool ConnectToSW(object ThisSW, int Cookie)
         {
             _swApp = (SldWorks)ThisSW;
+            swProcess = Process.GetProcessById(_swApp.GetProcessID());
             mSWCookie = Cookie;
             // Set-up add-in call back info
             bool result = _swApp.SetAddinCallbackInfo(0, this, Cookie);
@@ -131,6 +183,7 @@ namespace SWCube
             StartFrameTimer();
             return true;
         }
+        #endregion
 
         public bool DisconnectFromSW()
         {
@@ -156,6 +209,7 @@ namespace SWCube
             return true;
         }
 
+        #region timers
         private void StartFrameTimer()
         {
             //TODO add stopwatch to make sure not rnning at too high paste
@@ -194,8 +248,9 @@ namespace SWCube
             serverConnectTimer.Change(Timeout.Infinite, Timeout.Infinite);     
             Debug.WriteLine("Server timer stopped");
         }
+        #endregion
 
-
+        #region client
         private void ConnectClient()
         {
             try
@@ -269,184 +324,6 @@ namespace SWCube
 #endif
         }
 
-
-
-        //worker thread method for setting up things to update the frame
-        private void SolidFrameT(object myObject)//Vector3D a, Double theta)
-        {
-            if (solidFrameMutex.WaitOne(0))
-            {
-#if (TICKMON)
-                Debug.WriteLine("Solid Timer Tick");
-#endif
-                if (!clientConnected)
-                {
-                    StopFrameTimer();
-                    StartServerTimer();
-                    solidFrameMutex.ReleaseMutex();
-                    return;
-                }
-#if (FRAMEMON)
-                stopWatch = new Stopwatch();
-                times = new double[8];
-                stopWatch.Start();
-#endif
-                GetCorrectedQuat();
-                GetZoom();
-                GetPanSpeed();
-#if (FRAMEMON)
-                times[0] = stopWatch.ElapsedMilliseconds;
-#endif
-                //TODO: release if no movement. but if no mouse, try to get a mouse!
-                if ((mouseSelected) && (!mpuStable || !MovementFilter()) )
-                {
-                    solidFrameMutex.ReleaseMutex();
-                    return;
-                }
-                lastDisplayQuat = displayQuat;
-                //added for queue:
-                quatQueue.Clear();
-                queueSize = 0;
-
-#if (FRAMEMON)
-                times[1] = stopWatch.ElapsedMilliseconds;
-#endif
-                controlThread.Invoke(new EventHandler(SolidFrame));
-#if (FRAMEMON)
-                times[7] = stopWatch.ElapsedMilliseconds;
-                Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
-                times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
-
-                stopWatch.Stop();
-#endif
-                solidFrameMutex.ReleaseMutex();            
-            }
-#if (DEBUGG)
-            else
-            {
-                Debug.WriteLine("SolidFrameMutex Drop!");
-            }
-#endif
-        }
-
-        //method for updating the solid cam view
-        private void SolidFrame(object myObject, EventArgs myEventArgs)
-        {
-#if (FRAMEMON)
-            times[2] = stopWatch.ElapsedMilliseconds;
-#endif
-            try
-            {
-                if (!solidDoc)
-                {
-                    if (_swApp.ActiveDoc != null)
-                    {
-                        solidDoc = true;
-                    }
-                }
-                //avoiding exceptions if possible                        
-                if (solidDoc)
-                {
-                    IModelDoc doc = _swApp.ActiveDoc;
-                    try
-                    {
-                        IModelView view = doc.ActiveView;
-                        if (mouseSelected == false)
-                        {
-                            theMouse = view.GetMouse();
-                            theMouse.MouseSelectNotify += MouseSelect;
-                            theMouse.MouseLBtnUpNotify += ClearSelection;
-                            mouseSelected = true;
-                            /*swDocumentTypes_e type = (swDocumentTypes_e)doc.GetType();
-                            switch (type)
-                            {
-                                case swDocumentTypes_e.swDocASSEMBLY:
-                                    ((AssemblyDoc)doc).ClearSelectionsNotify += ClearSelection;
-                                    break;
-                                case swDocumentTypes_e.swDocDRAWING:
-                                    ((DrawingDoc)doc).ClearSelectionsNotify += ClearSelection;
-                                    break;
-                                case swDocumentTypes_e.swDocPART:
-                                    ((PartDoc)doc).ClearSelectionsNotify += ClearSelection;
-                                    break;
-                            } */                           
-                        }
-                        //TODO: translate :(
-                        //15-23 ms no need to translate just yet!
-                        //MathTransform translate = view.Translation3;
-                        //TODO: rescale :(
-                        //no need to rescale yet either
-                        //double scale = view.Scale2;
-                        //double[,] rotation = QuatToRotation(displayQuat);
-                        
-                        /*Debug.WriteLine("{0} {1} {2} {3}", data[0], data[3], data[6], data[9]);
-                        Debug.WriteLine("{0} {1} {2} {3}", data[1], data[4], data[7], data[10]);
-                        Debug.WriteLine("{0} {1} {2} {3}", data[2], data[5], data[8], data[11]);
-                        Debug.WriteLine("{0} {1} {2} {3}", data[13], data[14], data[15], data[12]);*/
-
-                        double[,] transformation = QuatToTransformation(displayQuat);
-                        double[,] translate = TransToTransformation(-rotationCenter[0], -rotationCenter[1], -rotationCenter[2]);
-                        transformation = MatMult(transformation, translate);
-                        translate = TransToTransformation(rotationCenter[0], rotationCenter[1], rotationCenter[2]);
-                        transformation = MatMult(translate, transformation);
-
-                        if (rotationCenterChanged)
-                        {
-                            double[] data = view.Orientation3.ArrayData;
-                            rotCenterTransCorrection = TransToTransformation(data[9]-transformation[0, 3],
-                                                        data[10] - transformation[1, 3], data[11] - transformation[2, 3]);
-                            rotationCenterChanged = false;
-                        }
-                        //TODO: a break here causes debugger meltdown (particularly, if trying to 'reconnect' after resuming. WHY?
-                        transformation = MatMult(rotCenterTransCorrection, transformation);
-
-                        double[] tempArr = TransformationToArray(transformation);
-
-#if (FRAMEMON)
-                        times[3] = stopWatch.ElapsedMilliseconds;
-#endif                        
-                        orientation.ArrayData = tempArr;
-                        //TODO calculating the translation makes it MUCH slower.
-                        view.Orientation3 = orientation;
-
-                        double[] tempArr2 = {panSpeed[0], panSpeed[1], panSpeed[2]};
-                        double[] currArray = view.Translation3.ArrayData;
-                        tempArr2[0] += currArray[0];
-                        tempArr2[1] += currArray[1];
-                        tempArr2[2] += currArray[2];
-
-                        translation.ArrayData = tempArr2;
-                        view.Translation3 = translation;
-                                             
-                        //old code
-                        //view.RotateAboutCenter(0, 0);
-#if (FRAMEMON)
-                        times[4] = stopWatch.ElapsedMilliseconds;
-#endif
-                        view.GraphicsRedraw(new int[] { });
-#if (FRAMEMON)
-                        times[5] = stopWatch.ElapsedMilliseconds;
-#endif
-                    }
-                    //no active view
-                    catch (Exception ex)
-                    {
-                        solidDoc = false;
-                        mouseSelected = false;
-                        Debug.WriteLine("Unable to rotate Solid Camera!\n" + ex.ToString());
-                    }
-                }
-            }
-            //no _swApp
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Oh no! Something went wrong with Solid!\n" + ex.ToString());
-            }
-#if (FRAMEMON)
-            times[6] = stopWatch.ElapsedMilliseconds;
-#endif
-        }
-
         //method for getting the corrected current quat (and mpu state) from server
         public void GetCorrectedQuat()
         {
@@ -478,7 +355,7 @@ namespace SWCube
                     Debug.WriteLine("Error reading from server!");
                     DisconnectServer();
                     return;
-                }                
+                }
             }
             mpuStable = BitConverter.ToBoolean(data, 0);
             float X = BitConverter.ToSingle(data, 1);
@@ -580,6 +457,281 @@ namespace SWCube
 
         }
 
+        //method for getting the current zoom from server
+        public void GetButtons()
+        {
+            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_BUTTONS_MESSAGE);
+            try
+            {
+                clientStream.Write(data, 0, data.Length);
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine("Error writing to server!");
+                DisconnectServer();
+                return;
+            }
+            int readBytes = 0;
+            while (readBytes < 2 * NUM_BUTTONS * 4)
+            {
+                //TODO: wait to complete the data
+                //for each button there are 2 counters of 4 byte 
+                data = new Byte[2 * NUM_BUTTONS * 4];
+                // Read batch of the TcpServer response bytes.
+                Int32 bytes;
+                try
+                {
+                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
+                    readBytes += bytes;
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("Error reading from server!");
+                    DisconnectServer();
+                    return;
+                }
+            }
+            for (int i = 0; i < NUM_BUTTONS; i++)
+            {
+                newButtonClicks[i] = BitConverter.ToInt32(data, i * 4);
+                newButtonReleases[i] = BitConverter.ToInt32(data, NUM_BUTTONS + i * 4);
+            }
+        }
+        #endregion
+
+
+        //worker thread method for setting up things to update the frame
+        private void SolidFrameT(object myObject)//Vector3D a, Double theta)
+        {
+            if (solidFrameMutex.WaitOne(0))
+            {
+#if (TICKMON)
+                Debug.WriteLine("Solid Timer Tick");
+#endif
+                if (!clientConnected)
+                {
+                    StopFrameTimer();
+                    StartServerTimer();
+                    solidFrameMutex.ReleaseMutex();
+                    return;
+                }
+#if (FRAMEMON)
+                stopWatch = new Stopwatch();
+                times = new double[8];
+                stopWatch.Start();
+#endif
+                GetCorrectedQuat();
+                GetZoom();
+                GetPanSpeed();
+                GetButtons();
+
+#if (FRAMEMON)
+                times[0] = stopWatch.ElapsedMilliseconds;
+#endif
+                //release if button was pressed that terminates the frame run
+                if (ButtonClickCheckAndReturn())
+                {
+                    solidFrameMutex.ReleaseMutex();
+                    return;
+                }
+
+                //TODO: release if no movement. but if no mouse, try to get a mouse!
+                if ((mouseSelected) && (!mpuStable || !MovementFilter()) )
+                {
+                    solidFrameMutex.ReleaseMutex();
+                    return;
+                }
+                lastDisplayQuat = displayQuat;
+                //added for queue:
+                quatQueue.Clear();
+                queueSize = 0;
+
+#if (FRAMEMON)
+                times[1] = stopWatch.ElapsedMilliseconds;
+#endif
+                controlThread.Invoke(new EventHandler(SolidFrame));
+#if (FRAMEMON)
+                times[7] = stopWatch.ElapsedMilliseconds;
+                Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
+                times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
+
+                stopWatch.Stop();
+#endif
+                solidFrameMutex.ReleaseMutex();            
+            }
+#if (DEBUGG)
+            else
+            {
+                Debug.WriteLine("SolidFrameMutex Drop!");
+            }
+#endif
+        }
+
+        private void NormalToFace(int face)
+        {
+            SetForegroundWindow(swProcess.MainWindowHandle);
+            switch (face)
+            {                
+                case TOP:
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+                    keybd_event((byte)VK_5_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+
+                    keybd_event((byte)VK_5_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    break;
+                case BOTTOM:
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+                    keybd_event((byte)VK_6_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+
+                    keybd_event((byte)VK_6_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    break;
+
+                case LEFT:
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+                    keybd_event((byte)VK_3_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+
+                    keybd_event((byte)VK_3_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    break;
+
+                case RIGHT:
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+                    keybd_event((byte)VK_4_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+
+                    keybd_event((byte)VK_4_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    break;
+
+                case FRONT:
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+                    keybd_event((byte)VK_1_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+
+                    keybd_event((byte)VK_1_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    break;
+
+                case BACK:
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+                    keybd_event((byte)VK_2_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYDOWN, 0);
+
+                    keybd_event((byte)VK_2_KEY, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    keybd_event((byte)VK_CONTROL, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+                    break;
+
+            }
+            //TODO use this in movement filter! (don't forget to reset if moved)
+            normalTo = true;
+        }
+
+        //method for updating the solid cam view
+        private void SolidFrame(object myObject, EventArgs myEventArgs)
+        {
+#if (FRAMEMON)
+            times[2] = stopWatch.ElapsedMilliseconds;
+#endif
+            try
+            {
+                if (!solidDoc)
+                {
+                    if (_swApp.ActiveDoc != null)
+                    {
+                        solidDoc = true;
+                    }
+                }
+                //avoiding exceptions if possible                        
+                if (solidDoc)
+                {
+                    IModelDoc doc = _swApp.ActiveDoc;
+                    try
+                    {
+                        IModelView view = doc.ActiveView;
+                        if (mouseSelected == false)
+                        {
+                            theMouse = view.GetMouse();
+                            theMouse.MouseSelectNotify += MouseSelect;
+                            theMouse.MouseLBtnUpNotify += ClearSelection;
+                            mouseSelected = true;
+                            /*swDocumentTypes_e type = (swDocumentTypes_e)doc.GetType();
+                            switch (type)
+                            {
+                                case swDocumentTypes_e.swDocASSEMBLY:
+                                    ((AssemblyDoc)doc).ClearSelectionsNotify += ClearSelection;
+                                    break;
+                                case swDocumentTypes_e.swDocDRAWING:
+                                    ((DrawingDoc)doc).ClearSelectionsNotify += ClearSelection;
+                                    break;
+                                case swDocumentTypes_e.swDocPART:
+                                    ((PartDoc)doc).ClearSelectionsNotify += ClearSelection;
+                                    break;
+                            } */                           
+                        }
+
+                        //TODO: zoom
+
+                        double[,] transformation = QuatToTransformation(displayQuat);
+                        double[,] translate = TransToTransformation(-rotationCenter[0], -rotationCenter[1], -rotationCenter[2]);
+                        transformation = MatMult(transformation, translate);
+                        translate = TransToTransformation(rotationCenter[0], rotationCenter[1], rotationCenter[2]);
+                        transformation = MatMult(translate, transformation);
+
+                        if (rotationCenterChanged)
+                        {
+                            double[] data = view.Orientation3.ArrayData;
+                            rotCenterTransCorrection = TransToTransformation(data[9]-transformation[0, 3],
+                                                        data[10] - transformation[1, 3], data[11] - transformation[2, 3]);
+                            rotationCenterChanged = false;
+                        }
+                        //TODO: a break here causes debugger meltdown (particularly, if trying to 'reconnect' after resuming. WHY?
+                        transformation = MatMult(rotCenterTransCorrection, transformation);
+
+                        double[] tempArr = TransformationToArray(transformation);
+
+#if (FRAMEMON)
+                        times[3] = stopWatch.ElapsedMilliseconds;
+#endif                        
+                        orientation.ArrayData = tempArr;
+                        //TODO calculating the translation makes it MUCH slower. try adding to the translation vector instead
+                        view.Orientation3 = orientation;
+
+                        //panning according to specifc speed
+                        double[] tempArr2 = {panSpeed[0], panSpeed[1], panSpeed[2]};
+                        double[] currArray = view.Translation3.ArrayData;
+                        tempArr2[0] += currArray[0];
+                        tempArr2[1] += currArray[1];
+                        tempArr2[2] += currArray[2];
+
+                        translation.ArrayData = tempArr2;
+                        view.Translation3 = translation;
+                                             
+                        //old code
+                        //view.RotateAboutCenter(0, 0);
+#if (FRAMEMON)
+                        times[4] = stopWatch.ElapsedMilliseconds;
+#endif
+                        view.GraphicsRedraw(new int[] { });
+#if (FRAMEMON)
+                        times[5] = stopWatch.ElapsedMilliseconds;
+#endif
+                    }
+                    //no active view
+                    catch (Exception ex)
+                    {
+                        solidDoc = false;
+                        mouseSelected = false;
+                        Debug.WriteLine("Unable to rotate Solid Camera!\n" + ex.ToString());
+                    }
+                }
+            }
+            //no _swApp
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Oh no! Something went wrong with Solid!\n" + ex.ToString());
+            }
+#if (FRAMEMON)
+            times[6] = stopWatch.ElapsedMilliseconds;
+#endif
+        }
 
         //TODO: make a good filter.
         //function that checks whether an actual movement of the cube was made
@@ -628,6 +780,26 @@ namespace SWCube
             return true;
         }
 
+        private bool ButtonClickCheckAndReturn()
+        {
+            bool terminationFlag = false;
+            for (int i=0; i<NUM_BUTTONS; i++)
+            {
+                if (buttonClicks[i] !=  newButtonClicks[i])
+                {
+                    NormalToFace(i);
+                    terminationFlag = true;
+                    buttonClicks[i] = newButtonClicks[i];
+                }
+                if (buttonReleases[i] != newButtonReleases[i])
+                {
+                    buttonReleases[i] = newButtonReleases[i];
+                }
+            }
+            return terminationFlag;
+        }
+
+        #region mouse panning
         public int MouseSelect(int Ix, int Iy, double X, double Y, double Z)
         {
             rotationCenter[0] = X;
@@ -647,7 +819,9 @@ namespace SWCube
             return 1;
         }
 
-#region conversions
+        #endregion
+
+        #region conversions
         public double[,] QuatToRotation(Quaternion a)
         {
             double[,] rotation = new double[3, 3];
@@ -769,10 +943,11 @@ namespace SWCube
             }
             return newMat;
         }
-#endregion
+
+        #endregion
         
-#region old...
-        //comtlete method for updating the solid cam view - non threaded
+        #region old...
+        //complete method for updating the solid cam view - non threaded
         private void SolidFrameOld(object myObject, EventArgs myEventArgs)
         {
             Debug.WriteLine("Solid Timer Tick");
@@ -818,12 +993,7 @@ namespace SWCube
                         IModelView view = doc.ActiveView;
                         times[3] = stopWatch.ElapsedMilliseconds;
                         double[,] rotation = QuatToRotation(displayQuat);
-                        //TODO: translate :(
-                        //15-23 ms no need to translate just yet!
-                        //MathTransform translate = view.Translation3;
-                        //TODO: rescale :(
-                        //no need to rescale yet either
-                        //double scale = view.Scale2;
+
                         times[4] = stopWatch.ElapsedMilliseconds;
                         double[] tempArr = new double[16];
                         //new X axis
@@ -879,7 +1049,6 @@ namespace SWCube
 
         }
 
-        //TODO: make a good filter.
         //function that checks whether an actual movement of the cube was made
         private bool MovementFilterOld()
         {
@@ -887,14 +1056,14 @@ namespace SWCube
             Vector3D diffVector = Vector3D.Subtract(lastDisplayQuat.Axis, displayQuat.Axis);
             if (!(diffTheta > MAX_THETA_DIFF_UNLOCK || diffVector.Length > MAX_AXIS_DIFF_UNLOCK))
             {
-                ////TODO: fix cube so there is no drift to begin with and so this can be removed?
                 //avoid jumping due to drifting
                 lastDisplayQuat = displayQuat;
                 return false;
             }
             return true;
         }
-#endregion
+        
+        #endregion
 
     }
 }
