@@ -91,6 +91,7 @@ namespace MiniCube
         System.Threading.Timer BTTimer;
         int BTTimerInterval = 1000;
         Thread portOpenerThread;
+        bool oldProtocol = false;
 
 #if (BT)        
         BluetoothDeviceInfo bluetoothDevice;
@@ -98,9 +99,9 @@ namespace MiniCube
 #endif
 
         //comm protocol vars
-        char[] teapotPacket = new char[14];  // InvenSense Teapot packet
+        char[] packet = new char[26];  // cube packet
         int serialCount = 0;                 // current packet byte position
-        bool synced = false;
+        bool packetStarted = false;
         int pingTimerInterval;
         System.Threading.Timer pingTimerT;
         char[] pingBuff = { 'r' };
@@ -145,6 +146,8 @@ namespace MiniCube
         //counters which increase the appropriate event
         int[] buttonClicks = { 0, 0, 0, 0, 0, 0 };
         int[] buttonReleases = { 0, 0, 0, 0, 0, 0 };
+        //int[] newButtonClicks = { 0, 0, 0, 0, 0, 0 };
+        //int[] newButtonReleases = { 0, 0, 0, 0, 0, 0 };
 
 #if (MOUSEPAN)
         //bind the mouse movement to affect panning
@@ -570,7 +573,7 @@ namespace MiniCube
                             foreach (byte b in buffer)
                             {
                                 int ch = b;
-                                if (!synced && ch != '$')
+                                if (!packetStarted && ch != '$' && ch != '&') //$ is old 14 byte protocol, & is for new protocol
                                 {
                                     //TODO: after long (50 sec) debug break in Stable() (after clicking calibrate) gets deadlocked on this
 #if (SYNCMON)
@@ -596,54 +599,115 @@ namespace MiniCube
                                         makeCorrection = true;
                                         mpuStabilizeTimer.Start();
                                     }*/
+                                    if (ch == '$')
+                                    {
+                                        oldProtocol = true;
+                                    }
+                                    else  if (ch == '&')
+                                    {
+                                        oldProtocol = false;
+                                    }
                                     noSync = false;
                                 }
 
-                                synced = true;
-
-                                if ((serialCount == 1 && ch != 2)
+                                packetStarted = true;
+                                if (oldProtocol)
+                                {
+                                    if ((serialCount == 1 && ch != 2)
                                     || (serialCount == 12 && ch != '\r')
                                     || (serialCount == 13 && ch != '\n'))
-                                {
-                                    serialCount = 0;
-                                    synced = false;
-
-                                    noSync = true;
-                                    noFullSync = true;
-
-                                    continue;
-                                }
-                                //TODO: only needed as long as close sequence/reconnect may alter serialCount
-                                if (serialCount > 0 || ch == '$')
-                                {
-                                    teapotPacket[serialCount++] = (char)ch;
-                                    //congrats! we have a new packet. 
-                                    if (serialCount == 14)
                                     {
-
-                                        if (noFullSync)
-                                        {
-                                            if (this.IsHandleCreated)
-                                            {
-                                                this.BeginInvoke(new SimpleDelegate(delegate
-                                                {
-                                                    this.Icon = Properties.Resources.on;
-                                                }));
-                                            }
-#if (SYNCMON)
-                                            Debug.WriteLine("Sync complete!");
-#endif
-                                            noFullSync = false;
-                                        }
-
-                                        //restart packet byte position
                                         serialCount = 0;
-                                        //synced has to be false for serial count 0, so that messages can be displayed
-                                        synced = false;
-                                        //try our best not to lose sync
-                                        new SimpleDelegate(PacketAnalyzer).BeginInvoke(null, null);
+                                        packetStarted = false;
+
+                                        noSync = true;
+                                        noFullSync = true;
+
+                                        continue;
+                                    }
+
+                                    //TODO: only needed as long as close sequence/reconnect may alter serialCount
+                                    if (serialCount > 0 || ch == '$')
+                                    {
+                                        packet[serialCount++] = (char)ch;
+                                        //congrats! we have a new packet. 
+                                        if (serialCount == 14)
+                                        {
+
+                                            if (noFullSync)
+                                            {
+                                                if (this.IsHandleCreated)
+                                                {
+                                                    this.BeginInvoke(new SimpleDelegate(delegate
+                                                    {
+                                                        this.Icon = Properties.Resources.on;
+                                                    }));
+                                                }
+#if (SYNCMON)
+                                                Debug.WriteLine("Sync complete!");
+#endif
+                                                noFullSync = false;
+                                            }
+
+                                            //restart packet byte position
+                                            serialCount = 0;
+                                            //synced has to be false for serial count 0, so that messages can be displayed
+                                            packetStarted = false;
+                                            //try our best not to lose sync
+                                            new SimpleDelegate(PacketAnalyzer).BeginInvoke(null, null);
+                                        }
                                     }
                                 }
+                                //new protocol
+                                else
+                                {
+                                    if ((serialCount == 1 && ch != 2)
+                                    || (serialCount == 24 && ch != '\r')
+                                    || (serialCount == 25 && ch != '\n'))
+                                    {
+                                        serialCount = 0;
+                                        packetStarted = false;
+
+                                        noSync = true;
+                                        noFullSync = true;
+
+                                        continue;
+                                    }
+
+                                    //TODO: only needed as long as close sequence/reconnect may alter serialCount
+                                    if (serialCount > 0 || ch == '&')
+                                    {
+                                        packet[serialCount++] = (char)ch;
+                                        //congrats! we have a new packet. 
+                                        if (serialCount == 26)
+                                        {
+
+                                            if (noFullSync)
+                                            {
+                                                if (this.IsHandleCreated)
+                                                {
+                                                    this.BeginInvoke(new SimpleDelegate(delegate
+                                                    {
+                                                        this.Icon = Properties.Resources.on;
+                                                    }));
+                                                }
+#if (SYNCMON)
+                                                Debug.WriteLine("Sync complete!");
+#endif
+                                                noFullSync = false;
+                                            }
+
+                                            //restart packet byte position
+                                            serialCount = 0;
+                                            //synced has to be false for serial count 0, so that messages can be displayed
+                                            packetStarted = false;
+                                            //try our best not to lose sync
+                                            new SimpleDelegate(PacketAnalyzer).BeginInvoke(null, null);
+                                        }
+                                    }
+                                }
+                                
+                                
                             }
                         }
                         finally
@@ -679,9 +743,9 @@ namespace MiniCube
                         try
                         {
                             //needed for simple auto lock/unlock mechanism, as each packet is currently sent twice
-                            if (teapotPacket[11] != lastPacketID)
+                            if (packet[11] != lastPacketID)
                             {
-                                lastPacketID = teapotPacket[11];
+                                lastPacketID = packet[11];
                             }
                             else
                             {
@@ -689,10 +753,10 @@ namespace MiniCube
                             }
 
                             // get quaternion from data packet
-                            q[0] = ((teapotPacket[2] << 8) | teapotPacket[3]) / 16384.0f;
-                            q[1] = ((teapotPacket[4] << 8) | teapotPacket[5]) / 16384.0f;
-                            q[2] = ((teapotPacket[6] << 8) | teapotPacket[7]) / 16384.0f;
-                            q[3] = ((teapotPacket[8] << 8) | teapotPacket[9]) / 16384.0f;
+                            q[0] = ((packet[2] << 8) | packet[3]) / 16384.0f;
+                            q[1] = ((packet[4] << 8) | packet[5]) / 16384.0f;
+                            q[2] = ((packet[6] << 8) | packet[7]) / 16384.0f;
+                            q[3] = ((packet[8] << 8) | packet[9]) / 16384.0f;
                             for (int i = 0; i < 4; i++) if (q[i] >= 2) q[i] = -4 + q[i];
 
                             // set our quaternion to new data
@@ -723,6 +787,16 @@ namespace MiniCube
 
                             double diffTheta = oldQuat.Angle - quat.Angle;
                             Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
+
+                            if (!oldProtocol)
+                            {
+                                for (int i = 0; i < NUM_BUTTONS; i++)
+                                {
+                                    buttonClicks[i] = packet[14 + i];
+                                    buttonReleases[i] = packet[20 + i];
+                                }
+                            }
+                            
 
 #if (DEBUGGER)
                             //activate frame timer if detected movement
@@ -1198,7 +1272,7 @@ namespace MiniCube
                     Debug.WriteLine("port closed");
                 }
 
-                synced = false;
+                packetStarted = false;
                 serialCount = 0;
                 //TODO when should confing be written?
                 using (StreamWriter sw = System.IO.File.CreateText(path))
@@ -1249,7 +1323,7 @@ namespace MiniCube
                 {
                     MessageBox.Show("Oh no! can't close port!\n" + ex.ToString());
                 }
-                synced = false;
+                packetStarted = false;
                 serialCount = 0;
                 OpenPort();
             }));
