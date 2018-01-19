@@ -33,6 +33,9 @@ namespace SWCube
         //Constants
         double MAX_THETA_DIFF_UNLOCK = 0.01;
         double MAX_AXIS_DIFF_UNLOCK = 0.001;//0.0001;
+        //used e.g when in normal-to mode
+        double MAX_THETA_DIFF_UNLOCK_STIFF = 0.2;
+        double MAX_AXIS_DIFF_UNLOCK_STIFF = 0.02;//0.0001;
         int sFPS = 1000;
         String CONNECT_MESSAGE = "Solid";
         String GET_QUAT_MESSAGE = "getQuat000";
@@ -765,6 +768,24 @@ namespace SWCube
                 quatReadingNum = 0;
             }
 #endif
+            if (normalTo)
+            {
+                if (!(diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK_STIFF || diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK_STIFF))
+                {
+                    ////TODO: fix cube so there is no drift to begin with and so this can be removed?
+                    //avoid jumping due to drifting
+                    //lastDisplayQuat = displayQuat;
+                    quatQueue.Enqueue(displayQuat);
+                    lastDisplayQuat = (Quaternion)quatQueue.Dequeue();
+                    return false;
+                }
+#if (MOVEMON)
+            Debug.WriteLine("Tak! Leaving Normal To mode! angle diff: {0}; Vector diff: {1}", (diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK_STIFF), (diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK_STIFF));
+#endif
+                normalTo = false;
+                return true;
+            }
+
             if (!(diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK || diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK))
             {
                 ////TODO: fix cube so there is no drift to begin with and so this can be removed?

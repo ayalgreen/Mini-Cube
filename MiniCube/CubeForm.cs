@@ -53,7 +53,7 @@ namespace MiniCube
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         #region vars
         //Constants
-        const int MAX_COUNTER = 100000;
+        const int MAX_ClICK_COUNTER = 0xFF;
         const int BAUD_RATE = 38400;
         //inventor FPS. obsolete (for debugger mode)
         int iFPS = 60;
@@ -173,7 +173,7 @@ namespace MiniCube
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Setup %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-        #region Setuo
+        #region Setup
 
         public CubeForm()
         {
@@ -742,14 +742,17 @@ namespace MiniCube
                     {
                         try
                         {
-                            //needed for simple auto lock/unlock mechanism, as each packet is currently sent twice
-                            if (packet[11] != lastPacketID)
+                            if (oldProtocol)
                             {
-                                lastPacketID = packet[11];
-                            }
-                            else
-                            {
-                                return;
+                                //needed for simple auto lock/unlock mechanism, as each packet is currently sent twice
+                                if (packet[11] != lastPacketID)
+                                {
+                                    lastPacketID = packet[11];
+                                }
+                                else
+                                {
+                                    return;
+                                }
                             }
 
                             // get quaternion from data packet
@@ -792,8 +795,8 @@ namespace MiniCube
                             {
                                 for (int i = 0; i < NUM_BUTTONS; i++)
                                 {
-                                    buttonClicks[i] = packet[14 + i];
-                                    buttonReleases[i] = packet[20 + i];
+                                    buttonClicks[i] = packet[12 + i];
+                                    buttonReleases[i] = packet[18 + i];
                                 }
                             }
                             
@@ -910,12 +913,12 @@ namespace MiniCube
         private void buttonTop_Click(object sender, EventArgs e)
         {
             buttonClicks[TOP]++;
-            if (buttonClicks[TOP] == MAX_COUNTER)
+            if (buttonClicks[TOP] == MAX_ClICK_COUNTER)
             {
                 buttonClicks[TOP] = 0;
             }
             buttonReleases[TOP]++;
-            if (buttonReleases[TOP] == MAX_COUNTER)
+            if (buttonReleases[TOP] == MAX_ClICK_COUNTER)
             {
                 buttonReleases[TOP] = 0;
             }
@@ -924,12 +927,12 @@ namespace MiniCube
         private void buttonBottom_Click(object sender, EventArgs e)
         {
             buttonClicks[BOTTOM]++;
-            if (buttonClicks[BOTTOM] == MAX_COUNTER)
+            if (buttonClicks[BOTTOM] == MAX_ClICK_COUNTER)
             {
                 buttonClicks[BOTTOM] = 0;
             }
             buttonReleases[BOTTOM]++;
-            if (buttonReleases[BOTTOM] == MAX_COUNTER)
+            if (buttonReleases[BOTTOM] == MAX_ClICK_COUNTER)
             {
                 buttonReleases[BOTTOM] = 0;
             }
@@ -938,12 +941,12 @@ namespace MiniCube
         private void buttonLeft_Click(object sender, EventArgs e)
         {
             buttonClicks[LEFT]++;
-            if (buttonClicks[LEFT] == MAX_COUNTER)
+            if (buttonClicks[LEFT] == MAX_ClICK_COUNTER)
             {
                 buttonClicks[LEFT] = 0;
             }
             buttonReleases[LEFT]++;
-            if (buttonReleases[LEFT] == MAX_COUNTER)
+            if (buttonReleases[LEFT] == MAX_ClICK_COUNTER)
             {
                 buttonReleases[LEFT] = 0;
             }
@@ -952,12 +955,12 @@ namespace MiniCube
         private void buttonRight_Click(object sender, EventArgs e)
         {
             buttonClicks[RIGHT]++;
-            if (buttonClicks[RIGHT] == MAX_COUNTER)
+            if (buttonClicks[RIGHT] == MAX_ClICK_COUNTER)
             {
                 buttonClicks[RIGHT] = 0;
             }
             buttonReleases[RIGHT]++;
-            if (buttonReleases[RIGHT] == MAX_COUNTER)
+            if (buttonReleases[RIGHT] == MAX_ClICK_COUNTER)
             {
                 buttonReleases[RIGHT] = 0;
             }
@@ -966,12 +969,12 @@ namespace MiniCube
         private void buttonFront_Click(object sender, EventArgs e)
         {
             buttonClicks[FRONT]++;
-            if (buttonClicks[FRONT] == MAX_COUNTER)
+            if (buttonClicks[FRONT] == MAX_ClICK_COUNTER)
             {
                 buttonClicks[FRONT] = 0;
             }
             buttonReleases[FRONT]++;
-            if (buttonReleases[FRONT] == MAX_COUNTER)
+            if (buttonReleases[FRONT] == MAX_ClICK_COUNTER)
             {
                 buttonReleases[FRONT] = 0;
             }
@@ -980,12 +983,12 @@ namespace MiniCube
         private void buttonBack_Click(object sender, EventArgs e)
         {
             buttonClicks[BACK]++;
-            if (buttonClicks[BACK] == MAX_COUNTER)
+            if (buttonClicks[BACK] == MAX_ClICK_COUNTER)
             {
                 buttonClicks[BACK] = 0;
             }
             buttonReleases[BACK]++;
-            if (buttonReleases[BACK] == MAX_COUNTER)
+            if (buttonReleases[BACK] == MAX_ClICK_COUNTER)
             {
                 buttonReleases[BACK] = 0;
             }
