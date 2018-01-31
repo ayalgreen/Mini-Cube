@@ -255,6 +255,10 @@ namespace MiniCube
                     {
                         SendButtons(stream, false);
                     }
+                    else if (dataString == "getPacket0")
+                    {
+                        SendPacket(stream, false);
+                    }
                     else if (dataString == "Disconnet0")
                     {
                         break;
@@ -271,7 +275,19 @@ namespace MiniCube
             Debug.WriteLine("Server stoped!");
         }
 
-        public void SendQuat(NetworkStream stream, bool isWebSocket)
+        public void SendPacket(NetworkStream stream, bool isWebSocket)
+        {
+            MemoryStream memStream = new MemoryStream();
+            SendQuat(memStream, isWebSocket);
+            SendPanSpeed(memStream, isWebSocket);
+            SendZoom(memStream, isWebSocket);
+            SendButtons(memStream, isWebSocket);
+            Byte[] response = memStream.ToArray();
+            stream.Write(response, 0, response.Length);
+        }
+
+
+        public void SendQuat(Stream stream, bool isWebSocket)
         {
             float[] quat = cube.GetCorrectedQuatFloats();
             MemoryStream memStream = new MemoryStream();
@@ -307,7 +323,7 @@ namespace MiniCube
             //Debug.WriteLine("wrote response");
         }
 
-        public void SendPanSpeed(NetworkStream stream, bool isWebSocket)
+        public void SendPanSpeed(Stream stream, bool isWebSocket)
         {
             float[] panSpeed = cube.GetPanSpeed();
             MemoryStream memStream = new MemoryStream();
@@ -334,7 +350,7 @@ namespace MiniCube
             //Debug.WriteLine("wrote response");
         }
 
-        public void SendZoom(NetworkStream stream, bool isWebSocket)
+        public void SendZoom(Stream stream, bool isWebSocket)
         {
             int zoom = cube.GetZoom();
             MemoryStream memStream = new MemoryStream();
@@ -355,7 +371,7 @@ namespace MiniCube
             //Debug.WriteLine("wrote response");
         }
 
-        public void SendButtons(NetworkStream stream, bool isWebSocket)
+        public void SendButtons(Stream stream, bool isWebSocket)
         {
             int[] buttonClicks = cube.GetButtonClicks();
             int[] buttonReleases = cube.GetButtonReleases();

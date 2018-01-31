@@ -18,6 +18,7 @@ using System.Collections;
 //using System.Runtime.InteropServices;
 using System.Threading;
 using System.Diagnostics;
+using System.IO;
 using SolidWorks.Interop.swconst;
 using SolidWorks.Interop.swcommands;
 //using SolidWorksTools;
@@ -38,6 +39,7 @@ namespace SWCube
         double MAX_AXIS_DIFF_UNLOCK_STIFF = 0.02;//0.0001;
         int sFPS = 1000;
         String CONNECT_MESSAGE = "Solid";
+        String GET_PACKET_MESSAGE = "getPacket0";
         String GET_QUAT_MESSAGE = "getQuat000";
         String GET_ZOOM_MESSAGE = "getZoom000";
         String GET_PAN_MESSAGE = "getPan0000";
@@ -76,6 +78,10 @@ namespace SWCube
 
         //solid vars
         public SldWorks _swApp;
+        IModelDoc2 activeDoc;
+        IAssemblyDoc activeAssemblyDoc;
+        bool assembly = false;
+        IModelView activeView;
         Process swProcess;
         MathUtility swMathUtility;
         MathTransform orientation;
@@ -117,7 +123,8 @@ namespace SWCube
         int[] newButtonReleases = { 0, 0, 0, 0, 0, 0 };
         //saves whether we moved into "normal to" (side click)
         bool normalTo = false;
-
+        Object viewUpdateLock = new Object();
+        
         //comm vars
         TcpClient client;
         NetworkStream clientStream;
@@ -130,6 +137,7 @@ namespace SWCube
         double[] vectorDiffs = new double[10];
         int quatReadingNum = 0;
         #endregion
+
         //key code: 1-25;, Flags -can be one or more of: 
         //KEYEVENTF_EXTENDEDKEY 0x0001   -if specified, the scan code was preceded by a prefix byte having the value 0xE0 (224).
         //KEYEVENTF_KEYUP 0x0002    -If specified, the key is being released. If not specified, the key is being depressed.
@@ -152,7 +160,7 @@ namespace SWCube
             {
                 rk.SetValue(null, 1); // Load at startup
                 rk.SetValue("Title", "SW Cube"); // Title
-                rk.SetValue("Description", "All your pixels belong to us!"); // Description
+                rk.SetValue("Description", "All your pixels belong to ussss!"); // Description
             }
         }
 
@@ -174,6 +182,7 @@ namespace SWCube
             swMathUtility = (MathUtility)_swApp.GetMathUtility();
             orientation = swMathUtility.CreateTransform(new double[1]);
             translation = swMathUtility.CreateVector(new double[1]);
+            _swApp.ActiveModelDocChangeNotify += ChangeDoc;
             controlThread = new Control();
             controlThread.CreateControl();
             /*_swApp.SendMsgToUser2("Press OK when server is up!",
@@ -181,6 +190,9 @@ namespace SWCube
                 (int)swMessageBoxBtn_e.swMbOk);*/
             ConnectClient();
             solidFrameTimerT = new System.Threading.Timer(SolidFrameT, null, Timeout.Infinite, Timeout.Infinite);
+            solidFrameTimer = new System.Windows.Forms.Timer();
+            solidFrameTimer.Interval = 10;
+            //solidFrameTimer.Tick += SolidFrameT;
             serverConnectTimer = new System.Threading.Timer(ServerConnectT, null, Timeout.Infinite, Timeout.Infinite);
             rotCenterTransCorrection = TransToTransformation(0, 0, 0);
             StartFrameTimer();
@@ -225,6 +237,7 @@ namespace SWCube
             solidFrameTimer.Start();
 #else
             solidFrameTimerT.Change(solidFrameInterval, solidFrameInterval);// = new System.Threading.Timer(SolidFrameT, null, );
+            //solidFrameTimer.Start();
 #endif            
             Debug.WriteLine("Frame timer started");
         }
@@ -235,6 +248,7 @@ namespace SWCube
             solidFrameTimer.Stop();
 #else
             solidFrameTimerT.Change(Timeout.Infinite, Timeout.Infinite);
+            //solidFrameTimer.Stop();
 #endif            
             Debug.WriteLine("Frame timer stopped");
         }
@@ -327,10 +341,10 @@ namespace SWCube
 #endif
         }
 
-        //method for getting the corrected current quat (and mpu state) from server
-        public void GetCorrectedQuat()
+        //method for sending a message to server
+        public bool SendServer(string message)
         {
-            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_QUAT_MESSAGE);
+            Byte[] data = System.Text.Encoding.ASCII.GetBytes(message);
             try
             {
                 clientStream.Write(data, 0, data.Length);
@@ -339,27 +353,61 @@ namespace SWCube
             {
                 Debug.WriteLine("Error writing to server!");
                 DisconnectServer();
-                return;
+                return false;
             }
+            return true;
+        }
+        
+        public Byte[] DataFromStream(Stream stream, int length)
+        {
+            Byte[] data = new Byte[length];
             int readBytes = 0;
-            while (readBytes < 17)
-            {
-                //TODO: wait to complete the data
-                data = new Byte[17];
-                // Read batch of the TcpServer response bytes.
+            //wait to complete the data
+            while (readBytes < length)
+            {                
+                Byte[] partialData = new Byte[length];
+                // Read batch of the stream bytes.
                 Int32 bytes;
                 try
                 {
-                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
+                    bytes = stream.Read(partialData, 0, data.Length - readBytes);                    
+                    for (int i=0; i<bytes; i++)
+                    {
+                        data[readBytes + i] = partialData[i];
+                    }
                     readBytes += bytes;
                 }
                 catch (Exception e)
                 {
                     Debug.WriteLine("Error reading from server!");
                     DisconnectServer();
-                    return;
+                    return new Byte[0];
                 }
             }
+            return data;
+        }
+
+        //method for getting the corrected current quat (and mpu state), Panning speed, zoom and button presses from server
+        public void GetPacket()
+        {
+            if (SendServer(GET_PACKET_MESSAGE))
+            {
+                GetCorrectedQuat();
+                GetPanSpeed();
+                GetZoom();
+                GetButtons();
+            }               
+        }
+
+        //method for getting the corrected current quat (and mpu state) from server
+        public void GetCorrectedQuat()
+        {
+            //SendServer(GET_QUAT_MESSAGE);
+            Byte[] data = DataFromStream(clientStream, 17);
+            if (data.Length != 17)
+            {
+                return;
+            }                        
             mpuStable = BitConverter.ToBoolean(data, 0);
             float X = BitConverter.ToSingle(data, 1);
             float Y = BitConverter.ToSingle(data, 5);
@@ -372,72 +420,26 @@ namespace SWCube
         //method for getting the current zoom from server
         public void GetZoom()
         {
-            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_ZOOM_MESSAGE);
-            try
+            //SendServer(GET_ZOOM_MESSAGE);
+            Byte[] data = DataFromStream(clientStream, 4);
+            if (data.Length != 4)
             {
-                clientStream.Write(data, 0, data.Length);
-            }
-            catch (Exception e)
-            {
-                Debug.WriteLine("Error writing to server!");
-                DisconnectServer();
                 return;
             }
-            int readBytes = 0;
-            while (readBytes < 4)
-            {
-                //TODO: wait to complete the data
-                data = new Byte[4];
-                // Read batch of the TcpServer response bytes.
-                Int32 bytes;
-                try
-                {
-                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
-                    readBytes += bytes;
-                }
-                catch (Exception e)
-                {
-                    Debug.WriteLine("Error reading from server!");
-                    DisconnectServer();
-                    return;
-                }
-            }
+
             zoom = BitConverter.ToInt32(data, 0);
         }
 
         //method for getting the current panning speed
         public void GetPanSpeed()
         {
-            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_PAN_MESSAGE);
-            try
+            //SendServer(GET_PAN_MESSAGE);
+            Byte[] data = DataFromStream(clientStream, 12);
+            if (data.Length != 12)
             {
-                clientStream.Write(data, 0, data.Length);
-            }
-            catch (Exception e)
-            {
-                Debug.WriteLine("Error writing to server!");
-                DisconnectServer();
                 return;
             }
-            int readBytes = 0;
-            while (readBytes < 12)
-            {
-                //TODO: wait to complete the data
-                data = new Byte[12];
-                // Read batch of the TcpServer response bytes.
-                Int32 bytes;
-                try
-                {
-                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
-                    readBytes += bytes;
-                }
-                catch (Exception e)
-                {
-                    Debug.WriteLine("Error reading from server!");
-                    DisconnectServer();
-                    return;
-                }
-            }
+
             float X = BitConverter.ToSingle(data, 0);
             float Y = BitConverter.ToSingle(data, 4);
             float Z = BitConverter.ToSingle(data, 8);
@@ -460,40 +462,17 @@ namespace SWCube
 
         }
 
-        //method for getting the current zoom from server
+        //method for getting button presses from server
         public void GetButtons()
         {
-            Byte[] data = System.Text.Encoding.ASCII.GetBytes(GET_BUTTONS_MESSAGE);
-            try
+            //SendServer(GET_BUTTONS_MESSAGE);
+            int length = 2 * NUM_BUTTONS * 4;
+            Byte[] data = DataFromStream(clientStream, length);
+            if (data.Length != length)
             {
-                clientStream.Write(data, 0, data.Length);
-            }
-            catch (Exception e)
-            {
-                Debug.WriteLine("Error writing to server!");
-                DisconnectServer();
                 return;
             }
-            int readBytes = 0;
-            while (readBytes < 2 * NUM_BUTTONS * 4)
-            {
-                //TODO: wait to complete the data
-                //for each button there are 2 counters of 4 byte 
-                data = new Byte[2 * NUM_BUTTONS * 4];
-                // Read batch of the TcpServer response bytes.
-                Int32 bytes;
-                try
-                {
-                    bytes = clientStream.Read(data, readBytes, data.Length - readBytes);
-                    readBytes += bytes;
-                }
-                catch (Exception e)
-                {
-                    Debug.WriteLine("Error reading from server!");
-                    DisconnectServer();
-                    return;
-                }
-            }
+
             for (int i = 0; i < NUM_BUTTONS; i++)
             {
                 newButtonClicks[i] = BitConverter.ToInt32(data, i * 4);
@@ -504,6 +483,7 @@ namespace SWCube
 
 
         //worker thread method for setting up things to update the frame
+        //private void SolidFrameT(object myObject, EventArgs myEventArgs)
         private void SolidFrameT(object myObject)//Vector3D a, Double theta)
         {
             if (solidFrameMutex.WaitOne(0))
@@ -523,10 +503,12 @@ namespace SWCube
                 times = new double[8];
                 stopWatch.Start();
 #endif
-                GetCorrectedQuat();
-                GetZoom();
-                GetPanSpeed();
-                GetButtons();
+
+                GetPacket();
+                //GetCorrectedQuat();
+                //GetPanSpeed();
+                //GetZoom();
+                //GetButtons();
 
 #if (FRAMEMON)
                 times[0] = stopWatch.ElapsedMilliseconds;
@@ -548,14 +530,20 @@ namespace SWCube
                 //added for queue:
                 quatQueue.Clear();
                 queueSize = 0;
-
 #if (FRAMEMON)
                 times[1] = stopWatch.ElapsedMilliseconds;
 #endif
+                //slow, but the best alternative.
                 controlThread.Invoke(new EventHandler(SolidFrame));
+                //a direct call or delegate takes forever
+                //new SimpleDelegate(SolidFrame).Invoke();
+                //new SimpleDelegate(SolidFrame).BeginInvoke(null, null);
+                //SolidFrame();
 #if (FRAMEMON)
                 times[7] = stopWatch.ElapsedMilliseconds;
-                Debug.WriteLine("solid: {0} {1} {2} {3} {4} {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
+                //0: Server communication.  1: ~     2: Async function call  3: getting active view
+                //4:calculating and changing view   5:graphics redraw
+                Debug.WriteLine("solid: {0} {1} {2} {3} {4} redraw: {5} {6} {7} total: {8}", times[0], times[1] - times[0], times[2] - times[1],
                 times[3] - times[2], times[4] - times[3], times[5] - times[4], times[6] - times[5], times[7] - times[6], times[7]);
 
                 stopWatch.Stop();
@@ -627,10 +615,37 @@ namespace SWCube
             normalTo = true;
         }
 
+        private int ChangeDoc()
+        {
+            activeDoc = _swApp.ActiveDoc;
+            solidDoc = true;
+            try
+            {
+                activeView = activeDoc.ActiveView;
+                theMouse.MouseSelectNotify -= MouseSelect;
+                theMouse.MouseLBtnUpNotify -= ClearSelection;
+                mouseSelected = false;
+
+            }
+            catch
+            {
+                Debug.WriteLine("Could not get active view in change doc, or previous mouse is gone");
+                return 0;
+            }
+            /*if ((swDocumentTypes_e)activeDoc.GetType() == swDocumentTypes_e.swDocASSEMBLY)
+            {
+                assembly = true;
+                activeAssemblyDoc = (AssemblyDoc)activeDoc;
+            }*/            
+            return 1;
+        }
+
         //method for updating the solid cam view
-        private void SolidFrame(object myObject, EventArgs myEventArgs)
+        //private void SolidFrame()
+        private void SolidFrame(object myObject, EventArgs myEventArgs)        
         {
 #if (FRAMEMON)
+
             times[2] = stopWatch.ElapsedMilliseconds;
 #endif
             try
@@ -639,35 +654,33 @@ namespace SWCube
                 {
                     if (_swApp.ActiveDoc != null)
                     {
+                        activeDoc = _swApp.ActiveDoc;
                         solidDoc = true;
+                        activeView = activeDoc.ActiveView;
                     }
                 }
                 //avoiding exceptions if possible                        
                 if (solidDoc)
                 {
+                    //long temptime = stopWatch.ElapsedMilliseconds;
                     IModelDoc doc = _swApp.ActiveDoc;
+                    //Debug.WriteLine("saving: {0}", stopWatch.ElapsedMilliseconds - temptime);
                     try
                     {
                         IModelView view = doc.ActiveView;
+                        //IModelView view = activeDoc.ActiveView;
+                        //IModelView view = activeView;
+#if (FRAMEMON)
+                        times[3] = stopWatch.ElapsedMilliseconds;
+#endif   
                         if (mouseSelected == false)
                         {
+
                             theMouse = view.GetMouse();
                             theMouse.MouseSelectNotify += MouseSelect;
                             theMouse.MouseLBtnUpNotify += ClearSelection;
                             mouseSelected = true;
-                            /*swDocumentTypes_e type = (swDocumentTypes_e)doc.GetType();
-                            switch (type)
-                            {
-                                case swDocumentTypes_e.swDocASSEMBLY:
-                                    ((AssemblyDoc)doc).ClearSelectionsNotify += ClearSelection;
-                                    break;
-                                case swDocumentTypes_e.swDocDRAWING:
-                                    ((DrawingDoc)doc).ClearSelectionsNotify += ClearSelection;
-                                    break;
-                                case swDocumentTypes_e.swDocPART:
-                                    ((PartDoc)doc).ClearSelectionsNotify += ClearSelection;
-                                    break;
-                            } */                           
+                         
                         }
 
                         //TODO: zoom
@@ -677,7 +690,7 @@ namespace SWCube
                         transformation = MatMult(transformation, translate);
                         translate = TransToTransformation(rotationCenter[0], rotationCenter[1], rotationCenter[2]);
                         transformation = MatMult(translate, transformation);
-
+                        //so rotation point doesn't move
                         if (rotationCenterChanged)
                         {
                             double[] data = view.Orientation3.ArrayData;
@@ -690,32 +703,46 @@ namespace SWCube
 
                         double[] tempArr = TransformationToArray(transformation);
 
-#if (FRAMEMON)
-                        times[3] = stopWatch.ElapsedMilliseconds;
-#endif                        
+                        /*double[] tempTranslation = { tempArr[9], tempArr[10], tempArr[11] };
+                        tempArr[9] = 0;
+                        tempArr[10] = 0;
+                        tempArr[11] = 0;
+                        double scale = tempArr[12];
+                        tempArr[12] = 1;*/
                         orientation.ArrayData = tempArr;
                         //TODO calculating the translation makes it MUCH slower. try adding to the translation vector instead
                         view.Orientation3 = orientation;
 
                         //panning according to specifc speed
-                        double[] tempArr2 = {panSpeed[0], panSpeed[1], panSpeed[2]};
-                        double[] currArray = view.Translation3.ArrayData;
-                        tempArr2[0] += currArray[0];
-                        tempArr2[1] += currArray[1];
-                        tempArr2[2] += currArray[2];
+                        double[] currPanning = { panSpeed[0], panSpeed[1], panSpeed[2] };
+                        double[] currTranslation = view.Translation3.ArrayData;
+                        currPanning[0] += currTranslation[0];
+                        currPanning[1] += currTranslation[1];
+                        currPanning[2] += currTranslation[2];
+                        /*tempTranslation[0] += currPanning[0];
+                        tempTranslation[1] += currPanning[1];
+                        tempTranslation[2] += currPanning[2];
 
-                        translation.ArrayData = tempArr2;
+                        tempTranslation[0] += currTranslation[0];
+                        tempTranslation[1] += currTranslation[1];
+                        tempTranslation[2] += currTranslation[2];*/
+
+                        //translation.ArrayData = tempTranslation;
+                        translation.ArrayData = currPanning;
                         view.Translation3 = translation;
-                                             
-                        //old code
-                        //view.RotateAboutCenter(0, 0);
+
 #if (FRAMEMON)
                         times[4] = stopWatch.ElapsedMilliseconds;
 #endif
+                        //view.StartDynamics();
+                        //old code
+                        //view.RotateAboutCenter(0, 0);
+                        //activeDoc.GraphicsRedraw2();
                         view.GraphicsRedraw(new int[] { });
 #if (FRAMEMON)
                         times[5] = stopWatch.ElapsedMilliseconds;
 #endif
+                        view.StopDynamics();
                     }
                     //no active view
                     catch (Exception ex)
@@ -820,7 +847,7 @@ namespace SWCube
             return terminationFlag;
         }
 
-        #region mouse panning
+        #region mouse select rotation center
         public int MouseSelect(int Ix, int Iy, double X, double Y, double Z)
         {
             rotationCenter[0] = X;
@@ -1006,7 +1033,7 @@ namespace SWCube
                 {
                     times[1] = stopWatch.ElapsedMilliseconds;
                     //5-14 ms
-                    IModelDoc doc = _swApp.ActiveDoc;
+                    IModelDoc2 doc = _swApp.ActiveDoc;
                     try
                     {
                         times[2] = stopWatch.ElapsedMilliseconds;
