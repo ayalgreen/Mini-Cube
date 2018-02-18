@@ -703,12 +703,16 @@ namespace SWCube
 
                         double[] tempArr = TransformationToArray(transformation);
 
-                        /*double[] tempTranslation = { tempArr[9], tempArr[10], tempArr[11] };
+                        //fly
+                        /*
+                        double[] tempTranslation = { tempArr[9], tempArr[10], tempArr[11] };
                         tempArr[9] = 0;
                         tempArr[10] = 0;
                         tempArr[11] = 0;
                         double scale = tempArr[12];
                         tempArr[12] = 1;*/
+
+
                         orientation.ArrayData = tempArr;
                         //TODO calculating the translation makes it MUCH slower. try adding to the translation vector instead
                         view.Orientation3 = orientation;
@@ -716,19 +720,28 @@ namespace SWCube
                         //panning according to specifc speed
                         double[] currPanning = { panSpeed[0], panSpeed[1], panSpeed[2] };
                         double[] currTranslation = view.Translation3.ArrayData;
+                        //normal
                         currPanning[0] += currTranslation[0];
                         currPanning[1] += currTranslation[1];
                         currPanning[2] += currTranslation[2];
-                        /*tempTranslation[0] += currPanning[0];
+                        //normal
+                        translation.ArrayData = currPanning; 
+                        
+
+                        //fly
+                        /*
+                        tempTranslation[0] += currPanning[0]; 
                         tempTranslation[1] += currPanning[1];
                         tempTranslation[2] += currPanning[2];
-
+                        //fly
                         tempTranslation[0] += currTranslation[0];
                         tempTranslation[1] += currTranslation[1];
-                        tempTranslation[2] += currTranslation[2];*/
-
-                        //translation.ArrayData = tempTranslation;
-                        translation.ArrayData = currPanning;
+                        tempTranslation[2] += currTranslation[2];
+                        //fly
+                        translation.ArrayData = tempTranslation;
+                        */ 
+                        
+                                                
                         view.Translation3 = translation;
 
 #if (FRAMEMON)
