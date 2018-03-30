@@ -156,7 +156,23 @@ namespace MiniCube
         bool mousePanStarted = false;
 #endif
 
+        //cradle
+        bool cradleConnected = false;
+        Thread portOpenerThread2;
+        string serialComPortCradle = "";
+        SerialPort serialPort2 = new SerialPort();
+        bool portError2 = false;
+        bool allInCradle = false;
+        static Mutex serialPort2DataMutex = new Mutex();
+        Object synchronizer2Lock = new Object();
+        Object packetAnalyzer2Lock = new Object();
+        char[] packet2 = new char[26];  // cube packet
+        int serialCount2 = 0;                 // current packet byte position
+        bool packetStarted2 = false;
+        bool noFullSync2 = true;
+        bool noSync2 = true;
         //inventor vars - obsolete. only for debugger mode
+        /*
         Inventor.Application _invApp;
         TransientGeometry tg;
         bool _inventorStartedByForm = false;
@@ -166,7 +182,7 @@ namespace MiniCube
         bool inventorFrameTimerTEnabled = false;
         static Mutex inventorFrameMutex = new Mutex();
         double camDist = 100;
-        bool inventorMovement = false;
+        bool inventorMovement = false;*/
 
         #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -197,6 +213,7 @@ namespace MiniCube
             foreach (string port in ports)
             {
                 comboBoxPorts.Items.Add(port);
+                comboBoxPortsCradle.Items.Add(port);
             }
 #if (MOUSEPAN)
             mouseWatcherThread = new Thread(this.MouseWatcher);
@@ -233,10 +250,24 @@ namespace MiniCube
                 {
                     string s = "";
                     s = sr.ReadLine();
+                    if (s == null)
+                    {
+                        return;
+                    }
                     if (comboBoxPorts.Items.Contains(s))
                     {
                         comboBoxPorts.Text = s;
                         serialComPort = s;
+                    }
+                    s = sr.ReadLine();
+                    if (s == null)
+                    {
+                        return;
+                    }
+                    if (comboBoxPortsCradle.Items.Contains(s))
+                    {
+                        comboBoxPortsCradle.Text = s;
+                        serialComPortCradle = s;
                     }
                 }
             }
@@ -265,6 +296,34 @@ namespace MiniCube
                 {
                     portError = false;
                     Thread newThread = new Thread(this.OpenPortExecutioner);
+                    newThread.Start();
+                    return;
+                }
+            }
+        }
+
+        private void OpenCradlePort()
+        {
+            buttonReconnectCradle.Enabled = false;
+            buttonReconnectCradle.Text = "Opening";
+            //this.Icon = Properties.Resources.off;
+            cradleConnected = false;
+            serialPort2 = new SerialPort();
+            serialPort2.ReadTimeout = 200;
+            serialPort2.WriteTimeout = 200;
+            serialPort2.PortName = serialComPortCradle;
+            serialPort2.BaudRate = BAUD_RATE;
+            serialPort2.ParityReplace = (byte)0;
+            serialPort2.DtrEnable = true;
+            //event handler to be run on *secondary thread*
+            serialPort2.DataReceived += new SerialDataReceivedEventHandler(SerialPort2DataReceived);
+            //select the port whose  port name is the required
+            foreach (string port in SerialPort.GetPortNames())
+            {
+                if (port == serialPort2.PortName)
+                {
+                    portError2 = false;
+                    Thread newThread = new Thread(this.OpenPort2Executioner);
                     newThread.Start();
                     return;
                 }
@@ -361,6 +420,95 @@ namespace MiniCube
             quatReadingsWatch.Start();
         }
 
+        //helper function for a timedout OpenPort
+        public void OpenPort2Executioner()
+        {
+            if (portOpenerThread2 != null)
+            {
+                if (portOpenerThread2.IsAlive)
+                {
+                    Debug.WriteLine("Stopping previous port open execution");
+                    portOpenerThread2.Abort();
+                }
+            }
+            //wait in case port was recently closed. 200ms did it on my PC..
+            Thread.Sleep(500);
+#if (CONNECTMON)
+            Stopwatch connectWatch = new Stopwatch();
+            connectWatch.Start();
+            long[] times = new long[5];
+#endif
+            //this doesnt terminate previous thread
+            portOpenerThread2 = new Thread(this.OpenPortExecution2);
+            portOpenerThread2.Start();
+#if (CONNECTMON)
+            times[0] = connectWatch.ElapsedMilliseconds;
+#endif
+            //timeout for the connection 'try'
+            if (!portOpenerThread2.Join(TimeSpan.FromSeconds(100*BTTimeoutSeconds)))
+            {
+#if (CONNECTMON)
+                times[1] = connectWatch.ElapsedMilliseconds;
+#endif
+
+                portOpenerThread2.Abort();
+#if (CONNECTMON)
+                times[2] = connectWatch.ElapsedMilliseconds;
+#endif
+                //moved to whithin catch clause
+                //portError = true;
+                //Debug.WriteLine("could not open port " + serialPort1.PortName);
+            }
+            if (this.IsHandleCreated)
+            {
+#if (CONNECTMON)
+                times[3] = connectWatch.ElapsedMilliseconds;
+#endif
+                this.BeginInvoke(new SimpleDelegate(delegate
+                {
+                    buttonReconnectCradle.Text = "Reconnect";
+                    buttonReconnectCradle.Enabled = true;
+                }));
+#if (CONNECTMON)
+                times[4] = connectWatch.ElapsedMilliseconds;
+                Debug.WriteLine("cradle connect/abort times: {0}, {1}, {2}, {3}, {4}", times[0], times[1] - times[0], times[2] - times[1], times[3] - times[2], times[4] - times[3]);
+#endif
+            }
+            if (!cradleConnected)
+            {
+                //TODO finish cradle open timer
+                BTTimer.Change(BTTimerInterval, BTTimerInterval);
+            }
+        }
+
+        //threaded version for allowing timeout
+        public void OpenPortExecution2()
+        {
+            try
+            {
+                serialPort2.Open();
+                if (serialPort2.IsOpen)
+                {
+                    Debug.WriteLine("Cradle port opened.");
+                    //TODO move to BT section
+                    cradleConnected = true;
+                }
+                else
+                {
+                    Debug.WriteLine("Could not open port (no exception)");
+                }
+                //pingTimerT.Change(pingTimerInterval, pingTimerInterval);
+            }
+            //if can't open port
+            catch (Exception ex)
+            {
+                portError2 = true;
+                //MessageBox.Show("Could not open port " + serialPort1.PortName);
+                Debug.WriteLine("Could not open port " + serialPort2.PortName + ": " + ex.Message);
+                return;
+            }
+        }
+
 
         //method for closing a port must be run on UI thread!
         private void ClosePort()
@@ -383,6 +531,7 @@ namespace MiniCube
                 MessageBox.Show("Oh no! Error closing port!\n");
             }
         }
+
 
         //threaded version for allowing timeouts
         public void ClosePortExecution()
@@ -410,6 +559,55 @@ namespace MiniCube
             }
         }
 
+
+        //method for closing a port must be run on UI thread!
+        private void ClosePort2()
+        {
+            buttonReconnectCradle.Enabled = false;
+            buttonReconnectCradle.Text = "Closing";
+            //this.Icon = Properties.Resources.off;
+            cradleConnected = false;
+            portError2 = false;
+            Thread newThread = new Thread(this.ClosePortExecution2);
+            newThread.Start();
+            //timeout for the connection 'try'
+            if (!newThread.Join(TimeSpan.FromSeconds(3)))
+            {
+                portError2 = true;
+                Debug.WriteLine("could not close port " + serialPort1.PortName);
+            }
+            if (portError2)
+            {
+                MessageBox.Show("Oh no! Error closing port!\n");
+            }
+        }
+
+
+        //threaded version for allowing timeouts
+        public void ClosePortExecution2()
+        {
+            try
+            {
+                if (serialPort2.IsOpen)
+                {
+                    serialPort2.Close();
+                    Debug.WriteLine("cradle port closed");
+                }
+            }
+            //if can't close port
+            catch (Exception ex)
+            {
+                portError2 = true;
+            }
+            if (this.IsHandleCreated)
+            {
+                this.BeginInvoke(new SimpleDelegate(delegate
+                {
+                    buttonReconnectCradle.Text = "Reconnect";
+                    buttonReconnectCradle.Enabled = true;
+                }));
+            }
+        }
 
         private void CubeSearcher(object myObject)
         {
@@ -832,6 +1030,261 @@ namespace MiniCube
             }
 
         }
+
+
+        private void SerialPort2DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
+        {
+            if (closeLock.TryEnterReadLock(0))
+            {
+                closeMutexOwner = "SerialPort2DataReceived";
+                try
+                {
+                    if (serialPort2DataMutex.WaitOne(0))
+                    {
+                        //TODO: only iterates once.  change to if?
+                        while (serialPort2.BytesToRead > 0)
+                        {
+
+                            //Debug.WriteLine("buffer length {0}", serialPort1.BytesToRead);
+                            //TODO only if port isn't closed!
+                            byte[] buffer = new byte[serialPort2.BytesToRead];
+                            serialPort2.Read(buffer, 0, buffer.Length);
+                            //new run, using delegate.beginInvoke is bad!! causes mutex blocks and losss of sync on laptop.
+                            //new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
+                            //old run using control.beginInvoke
+                            BeginInvoke(new DataProcessDelegate(Synchronizer2), buffer);
+                            serialPort2DataMutex.ReleaseMutex();
+                            return;
+                        }
+
+                        serialPort2DataMutex.ReleaseMutex();
+                    }
+#if (DEBUGG)
+                    else
+                    {
+                        Debug.WriteLine("serial port data mutex block {0}", dbgcounter);
+                        dbgcounter++;
+                    }
+#endif
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("Error on serial port data received!" + ex.Message);
+                }
+                finally
+                {
+                    closeLock.ExitReadLock();
+                }
+            }
+        }
+
+        //form-thread method for parsing received data and then calling DisplayFromPort()
+        private void Synchronizer2(byte[] buffer)
+        {
+            if (closeLock.TryEnterReadLock(0))
+            {
+                closeMutexOwner = "Synchronizer2";
+                try
+                {
+                    if (Monitor.TryEnter(synchronizer2Lock, 0))
+                    {
+                        try
+                        {
+                            foreach (byte b in buffer)
+                            {
+                                int ch = b;
+                                if (!packetStarted2 && ch != '&') //only new protocol!
+                                {
+                                    //TODO: after long (50 sec) debug break in Stable() (after clicking calibrate) gets deadlocked on this
+#if (SYNCMON)
+                                    Debug.Write((char)ch);
+#endif
+                                    noSync2 = true;
+                                    noFullSync2 = true;
+
+                                    continue;  // initial synchronization - also used to resync/realign if needed
+                                }
+
+                                if (noSync2)
+                                {
+#if (SYNCMON)
+                                    Debug.WriteLine("Sync Started..");
+#endif
+                                    /*old code: (if brought back, nosync must be more than a debug var!!)
+                                    //if regained sync after calibration, should wait for stabilization, adjust heading, and change view.
+                                    if (mpuCalibrating)
+                                    {
+                                        mpuCalibrating = false;
+                                        mpuStable = false;
+                                        makeCorrection = true;
+                                        mpuStabilizeTimer.Start();
+                                    }*/
+                                    noSync2 = false;
+                                }
+
+                                packetStarted2 = true;
+
+                                if ((serialCount2 == 1 && ch != 2)
+                                    || (serialCount2 == 24 && ch != '\r')
+                                    || (serialCount2 == 25 && ch != '\n'))
+                                {
+                                    serialCount2 = 0;
+                                    packetStarted2 = false;
+
+                                    noSync2 = true;
+                                    noFullSync2 = true;
+
+                                    continue;
+                                }
+
+                                //TODO: only needed as long as close sequence/reconnect may alter serialCount
+                                if (serialCount2 > 0 || ch == '&')
+                                {
+                                    packet2[serialCount2++] = (char)ch;
+                                    //congrats! we have a new packet. 
+                                    if (serialCount2 == 26)
+                                    {
+
+                                        if (noFullSync2)
+                                        {
+                                            if (this.IsHandleCreated)
+                                            {
+                                                this.BeginInvoke(new SimpleDelegate(delegate
+                                                {
+                                                    this.Icon = Properties.Resources.on;
+                                                }));
+                                            }
+#if (SYNCMON)
+                                            Debug.WriteLine("Cradle sync complete!");
+#endif
+                                            noFullSync2 = false;
+                                        }
+
+                                        //restart packet byte position
+                                        serialCount2 = 0;
+                                        //synced has to be false for serial count 0, so that messages can be displayed
+                                        packetStarted2 = false;
+                                        //try our best not to lose sync
+                                        new SimpleDelegate(PacketAnalyzer2).BeginInvoke(null, null);
+                                    }
+                                }
+
+
+
+
+
+                            }
+                        }
+                        finally
+                        {
+                            Monitor.Exit(synchronizer2Lock);
+                        }
+                    }
+#if (DEBUGG)
+                    else
+                    {
+                        Debug.WriteLine("synchronizer2 mutex block");
+                    }
+#endif
+                }
+                finally
+                {
+                    closeLock.ExitReadLock();
+                }
+
+            }
+
+        }
+
+        private void PacketAnalyzer2()
+        {
+            if (closeLock.TryEnterReadLock(0))
+            {
+                closeMutexOwner = "PacketAnalyzer2";
+                try
+                {
+                    if (Monitor.TryEnter(packetAnalyzer2Lock, 0))
+                    {
+                        try
+                        {
+                            if (allInCradle)
+                            {
+                                // get quaternion from data packet
+                                q[0] = ((packet[2] << 8) | packet[3]) / 16384.0f;
+                                q[1] = ((packet[4] << 8) | packet[5]) / 16384.0f;
+                                q[2] = ((packet[6] << 8) | packet[7]) / 16384.0f;
+                                q[3] = ((packet[8] << 8) | packet[9]) / 16384.0f;
+                                for (int i = 0; i < 4; i++) if (q[i] >= 2) q[i] = -4 + q[i];
+
+                                // set our quaternion to new data
+                                // adjusted to Inventor Coordinate System
+                                oldQuat = quat;
+                                quat = new Quaternion(q[0], q[2], -q[3], q[1]);
+                                //this was before debugging
+                                //quat = new Quaternion(q[0], -q[2], q[3], q[1]);
+#if (QUATREADMON)
+                            //checking quat update speed
+                            quatReading2++;
+                            if (quatReading2 >= 10)
+                            {
+                                quatReadingsTimes[quatReading] = quatReadingsWatch.ElapsedMilliseconds;
+                                quatReading++;
+                                quatReading2 = 0;
+                            }
+                            
+                            if (quatReading >= 10)
+                            {
+                                quatReading = 0;
+                                double[] qrt = quatReadingsTimes;
+                                Debug.WriteLine("quat reading times: {0} {1} {2} {3} {4} {5} {6} {7} {8}", (qrt[1] - qrt[0]) / 10, 
+                                   (qrt[2] - qrt[1]) / 10, (qrt[3] - qrt[2]) / 10, (qrt[4] - qrt[3]) / 10, (qrt[5] - qrt[4]) / 10, (qrt[6] - qrt[5]) / 10, 
+                                   (qrt[7] - qrt[6]) / 10, (qrt[8] - qrt[7]) / 10, (qrt[9] - qrt[8]) / 10);
+                            }
+#endif
+
+                                double diffTheta = oldQuat.Angle - quat.Angle;
+                                Vector3D diffVector = Vector3D.Subtract(oldQuat.Axis, quat.Axis);
+
+                                for (int i = 0; i < NUM_BUTTONS; i++)
+                                {
+                                    buttonClicks[i] = packet[12 + i];
+                                    buttonReleases[i] = packet[18 + i];
+                                }
+
+
+
+#if (DEBUGGER)
+                            //activate frame timer if detected movement
+                            if (diffTheta > MAX_THETA_DIFF_LOCK || diffVector.Length > MAX_AXIS_DIFF_LOCK)
+                            {
+
+                                if (!inventorFrameTimerTEnabled)
+                                {
+                                    if (inventorFrameTimerT.Change(inventorFrameInterval, inventorFrameInterval)) inventorFrameTimerTEnabled = true;
+                                }
+                            }
+#endif
+                            }
+                        }
+                        finally
+                        {
+                            Monitor.Exit(packetAnalyzer2Lock);
+                        }
+                    }
+#if (DEBUGG)
+                    else
+                    {
+                        Debug.WriteLine("packet analyzer mutex block");
+                    }
+#endif
+                }
+                finally
+                {
+                    closeLock.ExitReadLock();
+                }
+            }
+
+        }
         #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%% Server interaction and Debug %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1005,7 +1458,7 @@ namespace MiniCube
         }
 #endif
         //for debugger use - display according to pos and up
-        public bool InvFrameDisplay(double[] camPos, double[] camUp)
+/*        public bool InvFrameDisplay(double[] camPos, double[] camUp)
         {
             Stopwatch stopWatch = new Stopwatch();
             double[] times = new double[8];
@@ -1064,7 +1517,7 @@ namespace MiniCube
             }
 #endif
             return true;
-        }
+        }*/
 
 
         //make a good filter. - obsolete (doesn't sit in server)
@@ -1304,6 +1757,21 @@ namespace MiniCube
             }
         }
 
+        private void comboBoxPortsCradle_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            serialComPortCradle = comboBoxPortsCradle.Text;
+        }
+
+        private void comboBoxPortsCradle_DropDown(object sender, EventArgs e)
+        {
+            string[] ports = SerialPort.GetPortNames();
+            comboBoxPortsCradle.Items.Clear();
+            foreach (string port in ports)
+            {
+                comboBoxPortsCradle.Items.Add(port);
+            }
+        }
+
         private void buttonReconnect_Click(object sender, EventArgs e)
         {
             buttonReconnect.Enabled = false;
@@ -1329,6 +1797,34 @@ namespace MiniCube
                 packetStarted = false;
                 serialCount = 0;
                 OpenPort();
+            }));
+        }
+
+        private void buttonReconnectCradle_Click(object sender, EventArgs e)
+        {
+            buttonReconnectCradle.Enabled = false;
+            //this.Icon = Properties.Resources.off;
+            cradleConnected = false;
+            this.BeginInvoke(new SimpleDelegate(delegate
+            {
+                //TODO: change to port close executioner
+                try
+                {
+                    if (serialPort2.IsOpen)
+                    {
+                        //TODO: can get stuck here! if tryin to close after connected cube is turned off
+                        buttonReconnectCradle.Text = "Closing";
+                        serialPort2.Close();
+                        Debug.WriteLine("cradle port closed properly");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Oh no! can't close port!\n" + ex.ToString());
+                }
+                packetStarted2 = false;
+                serialCount2 = 0;
+                OpenCradlePort();
             }));
         }
 
@@ -1513,6 +2009,13 @@ namespace MiniCube
             server = new Server(this);
             serverStarted = true;
         }
+
+        private void checkBoxAllInOne_CheckedChanged(object sender, EventArgs e)
+        {
+            allInCradle = !allInCradle;
+        }
+
+
         #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Obsolete %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1690,7 +2193,6 @@ namespace MiniCube
 #endif
 
         #endregion
-
 
     }
 

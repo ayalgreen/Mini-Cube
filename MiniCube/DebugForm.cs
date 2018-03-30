@@ -50,7 +50,7 @@ namespace MiniCube
         }
 
 
-        public void Frame(Quaternion quat, Quaternion invertedQuat, Quaternion worldQuat, double camDist)
+        /*public void Frame(Quaternion quat, Quaternion invertedQuat, Quaternion worldQuat, double camDist)
         {
             if (frameMutex.WaitOne(0))
             {
@@ -229,7 +229,7 @@ namespace MiniCube
             {
                 Debug.WriteLine("Inventor Frame Mutex Block!");
             }       
-        }
+        }*/
 
 
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
@@ -292,7 +292,7 @@ namespace MiniCube
             UpdateDisplayCal();
         }
 
-        private void ShowQuat(Quaternion tempQuat, double camDist)
+        /*private void ShowQuat(Quaternion tempQuat, double camDist)
         {
             this.BeginInvoke(new QuatDelegate(UpdateDisplayTempQuat), tempQuat);
             Vector3D a = tempQuat.Axis;
@@ -305,7 +305,7 @@ namespace MiniCube
             this.BeginInvoke(new CamDelegate(UpdateDisplayCam), camPos, camUp);
             cube.InvFrameDisplay(camPos, camUp);
             this.BeginInvoke(new SimpleDelegate(UpdateDisplayLabel));
-        }
+        }*/
 
 
         public void UpdateDisplayCal()
