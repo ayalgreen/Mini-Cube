@@ -85,7 +85,7 @@ namespace MiniCube
         bool serverStarted = false;
 
         //comm vars
-        string serialComPort = "";
+        string serialComPort = "*";
         SerialPort serialPort1 = new SerialPort();
         bool portError = false;
         System.Threading.Timer BTTimer;
@@ -159,7 +159,7 @@ namespace MiniCube
         //cradle
         bool cradleConnected = false;
         Thread portOpenerThread2;
-        string serialComPortCradle = "";
+        string serialComPortCradle = "*";
         SerialPort serialPort2 = new SerialPort();
         bool portError2 = false;
         bool allInCradle = false;
