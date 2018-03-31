@@ -166,11 +166,18 @@ namespace MiniCube
         static Mutex serialPort2DataMutex = new Mutex();
         Object synchronizer2Lock = new Object();
         Object packetAnalyzer2Lock = new Object();
-        char[] packet2 = new char[26];  // cube packet
-        int serialCount2 = 0;                 // current packet byte position
+        char[] packet2 = new char[32];  // cradle packet. newer format!
+        int serialCount2 = 0;           //current packet byte position
         bool packetStarted2 = false;
         bool noFullSync2 = true;
         bool noSync2 = true;
+        //joystick calibration
+        int minX = 134;
+        int maxX = 632;
+        int minY = 107;
+        int maxY = 595;
+        //out of 100
+        int centerSize = 25;
         //inventor vars - obsolete. only for debugger mode
         /*
         Inventor.Application _invApp;
@@ -1030,8 +1037,9 @@ namespace MiniCube
             }
 
         }
+        #endregion
 
-
+        #region Cradle Comm Protocol
         private void SerialPort2DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
             if (closeLock.TryEnterReadLock(0))
@@ -1123,10 +1131,10 @@ namespace MiniCube
                                 }
 
                                 packetStarted2 = true;
-
+                                //newer format!
                                 if ((serialCount2 == 1 && ch != 2)
-                                    || (serialCount2 == 24 && ch != '\r')
-                                    || (serialCount2 == 25 && ch != '\n'))
+                                    || (serialCount2 == 30 && ch != '\r')
+                                    || (serialCount2 == 31 && ch != '\n'))
                                 {
                                     serialCount2 = 0;
                                     packetStarted2 = false;
@@ -1142,7 +1150,8 @@ namespace MiniCube
                                 {
                                     packet2[serialCount2++] = (char)ch;
                                     //congrats! we have a new packet. 
-                                    if (serialCount2 == 26)
+                                    //newer format!
+                                    if (serialCount2 == 32)
                                     {
 
                                         if (noFullSync2)
@@ -1207,6 +1216,7 @@ namespace MiniCube
                     {
                         try
                         {
+                            //TODO:work with packet2!
                             if (allInCradle)
                             {
                                 // get quaternion from data packet
@@ -1264,6 +1274,27 @@ namespace MiniCube
                                 }
                             }
 #endif
+                            }
+                            int panXraw = ((packet2[24] << 8) | packet2[25]);
+                            int panYraw = ((packet2[26] << 8) | packet2[27]);
+                            //Debug.WriteLine("X: {0}, Y: {1}", panXraw, panYraw);
+                            int panX = normalise(panXraw, maxX, minX);
+                            int panY = normalise(panYraw, maxY, minY);
+                            if (panX > centerSize || -panX > centerSize)
+                            {
+                                panSpeed[0] = -panX;
+                            }
+                            else
+                            {
+                                panSpeed[0] = 0;
+                            }
+                            if (panY > centerSize || -panY > centerSize)
+                            {
+                                panSpeed[1] = panY;
+                            }
+                            else
+                            {
+                                panSpeed[1] = 0;
                             }
                         }
                         finally
@@ -1630,6 +1661,13 @@ namespace MiniCube
 
             return vect;
         }
+
+        //move x value to [100, -100] range
+        public int normalise(int x, int maxVal, int minVal)
+        {
+            return (200 * (x - minVal) / (maxVal - minVal)) - 100;
+        }
+
         #endregion
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Program Flow %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1734,6 +1772,7 @@ namespace MiniCube
                 using (StreamWriter sw = System.IO.File.CreateText(path))
                 {
                     sw.WriteLine(serialComPort);
+                    sw.WriteLine(serialComPortCradle);
                 }
             }
             finally

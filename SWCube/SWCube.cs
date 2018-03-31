@@ -521,7 +521,8 @@ namespace SWCube
                 }
 
                 //TODO: release if no movement. but if no mouse, try to get a mouse!
-                if ((mouseSelected) && (!mpuStable || !MovementFilter()) )
+                bool[] movement = MovementFilter();
+                if ((mouseSelected) && (!mpuStable || !(movement[0] || movement[1])) )
                 {
                     solidFrameMutex.ReleaseMutex();
                     return;
@@ -534,7 +535,7 @@ namespace SWCube
                 times[1] = stopWatch.ElapsedMilliseconds;
 #endif
                 //slow, but the best alternative.
-                controlThread.Invoke(new EventHandler(SolidFrame));
+                controlThread.Invoke(new EventHandler(SolidFrame), movement);
                 //a direct call or delegate takes forever
                 //new SimpleDelegate(SolidFrame).Invoke();
                 //new SimpleDelegate(SolidFrame).BeginInvoke(null, null);
@@ -642,7 +643,7 @@ namespace SWCube
 
         //method for updating the solid cam view
         //private void SolidFrame()
-        private void SolidFrame(object myObject, EventArgs myEventArgs)        
+        private void SolidFrame(object movement, EventArgs myEventArgs)        
         {
 #if (FRAMEMON)
 
@@ -715,7 +716,10 @@ namespace SWCube
 
                         orientation.ArrayData = tempArr;
                         //TODO calculating the translation makes it MUCH slower. try adding to the translation vector instead
-                        view.Orientation3 = orientation;
+
+                        if (((bool[])movement)[1]) {
+                            view.Orientation3 = orientation;
+                        }
 
                         //panning according to specifc speed
                         double[] currPanning = { panSpeed[0], panSpeed[1], panSpeed[2] };
@@ -741,7 +745,7 @@ namespace SWCube
                         translation.ArrayData = tempTranslation;
                         */ 
                         
-                                                
+                        //TODO: only if panning occured? does that even help?                        
                         view.Translation3 = translation;
 
 #if (FRAMEMON)
@@ -778,17 +782,19 @@ namespace SWCube
 
         //TODO: make a good filter.
         //function that checks whether an actual movement of the cube was made
-        private bool MovementFilter()
+        //returns an array, first value regarding panning, second regarding orientation
+        private bool[] MovementFilter()
         {
+            bool[] answer = { false, false };
             if (panning)
             {
-                return true;
+                answer[0] = true;
             }
             if (queueSize < queueBufferSize-1)
             {
                 quatQueue.Enqueue(displayQuat);
                 queueSize++;
-                return false;
+                return answer;
             }
 
             double diffTheta = lastDisplayQuat.Angle - displayQuat.Angle;
@@ -817,13 +823,14 @@ namespace SWCube
                     //lastDisplayQuat = displayQuat;
                     quatQueue.Enqueue(displayQuat);
                     lastDisplayQuat = (Quaternion)quatQueue.Dequeue();
-                    return false;
+                    return answer;
                 }
 #if (MOVEMON)
             Debug.WriteLine("Tak! Leaving Normal To mode! angle diff: {0}; Vector diff: {1}", (diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK_STIFF), (diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK_STIFF));
 #endif
                 normalTo = false;
-                return true;
+                answer[1] = true;
+                return answer;
             }
 
             if (!(diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK || diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK))
@@ -833,12 +840,13 @@ namespace SWCube
                 //lastDisplayQuat = displayQuat;
                 quatQueue.Enqueue(displayQuat);
                 lastDisplayQuat = (Quaternion)quatQueue.Dequeue();                
-                return false;
+                return answer;
             }
 #if (MOVEMON)
             Debug.WriteLine("Tak! angle diff: {0}; Vector diff: {1}", (diffTheta > queueBufferSize * MAX_THETA_DIFF_UNLOCK), (diffVector.Length > queueBufferSize * MAX_AXIS_DIFF_UNLOCK));
 #endif
-            return true;
+            answer[1] = true;
+            return answer;
         }
 
         private bool ButtonClickCheckAndReturn()
