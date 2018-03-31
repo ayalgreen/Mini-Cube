@@ -27,6 +27,7 @@
 #define SYNCMON
 #define SERVER
 #define MOUSEPAN
+//#define PACKETMON
 
 
 using System;
@@ -307,6 +308,8 @@ namespace MiniCube
                     return;
                 }
             }
+            buttonReconnect.Text = "Reconnect";
+            buttonReconnect.Enabled = true;            
         }
 
         private void OpenCradlePort()
@@ -335,6 +338,8 @@ namespace MiniCube
                     return;
                 }
             }
+            buttonReconnectCradle.Text = "Reconnect";
+            buttonReconnectCradle.Enabled = true;
         }
 
         //helper function for a timedout OpenPort
@@ -737,7 +742,7 @@ namespace MiniCube
                             //new run, using delegate.beginInvoke is bad!! causes mutex blocks and losss of sync on laptop.
                             //new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
                             //old run using control.beginInvoke
-                            BeginInvoke(new DataProcessDelegate(Synchronizer), buffer);
+                            BeginInvoke(new DataProcessDelegate(Synchronizer), buffer); //this one is best! but problematic for simultaneous pan & rotate?
                             serialPortDataMutex.ReleaseMutex();
                             return;
                         }
@@ -906,6 +911,9 @@ namespace MiniCube
                                             serialCount = 0;
                                             //synced has to be false for serial count 0, so that messages can be displayed
                                             packetStarted = false;
+#if (PACKETMON)
+                                            Debug.WriteLine("Cube packet1");
+#endif
                                             //try our best not to lose sync
                                             new SimpleDelegate(PacketAnalyzer).BeginInvoke(null, null);
                                         }
@@ -1004,7 +1012,10 @@ namespace MiniCube
                                     buttonReleases[i] = packet[18 + i];
                                 }
                             }
-                            
+#if (PACKETMON)
+                            Debug.WriteLine("Cube packet2");
+#endif
+
 
 #if (DEBUGGER)
                             //activate frame timer if detected movement
@@ -1058,9 +1069,9 @@ namespace MiniCube
                             byte[] buffer = new byte[serialPort2.BytesToRead];
                             serialPort2.Read(buffer, 0, buffer.Length);
                             //new run, using delegate.beginInvoke is bad!! causes mutex blocks and losss of sync on laptop.
-                            //new DataProcessDelegate(Synchronizer).BeginInvoke(buffer, null, null);
+                            //new DataProcessDelegate(Synchronizer2).BeginInvoke(buffer, null, null);
                             //old run using control.beginInvoke
-                            BeginInvoke(new DataProcessDelegate(Synchronizer2), buffer);
+                            BeginInvoke(new DataProcessDelegate(Synchronizer2), buffer); //this one is best! but problematic for simultaneous pan & rotate?
                             serialPort2DataMutex.ReleaseMutex();
                             return;
                         }
@@ -1173,6 +1184,9 @@ namespace MiniCube
                                         serialCount2 = 0;
                                         //synced has to be false for serial count 0, so that messages can be displayed
                                         packetStarted2 = false;
+#if (PACKETMON)
+                                        Debug.WriteLine("Cradle packet1");
+#endif
                                         //try our best not to lose sync
                                         new SimpleDelegate(PacketAnalyzer2).BeginInvoke(null, null);
                                     }
@@ -1282,7 +1296,7 @@ namespace MiniCube
                             int panY = normalise(panYraw, maxY, minY);
                             if (panX > centerSize || -panX > centerSize)
                             {
-                                panSpeed[0] = -panX;
+                                panSpeed[0] = panX;
                             }
                             else
                             {
@@ -1290,12 +1304,15 @@ namespace MiniCube
                             }
                             if (panY > centerSize || -panY > centerSize)
                             {
-                                panSpeed[1] = panY;
+                                panSpeed[1] = -panY;
                             }
                             else
                             {
                                 panSpeed[1] = 0;
                             }
+#if (PACKETMON)
+                            Debug.WriteLine("Cradle packet2");
+#endif
                         }
                         finally
                         {
