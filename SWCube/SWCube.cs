@@ -527,10 +527,15 @@ namespace SWCube
                     solidFrameMutex.ReleaseMutex();
                     return;
                 }
-                lastDisplayQuat = displayQuat;
-                //added for queue:
-                quatQueue.Clear();
-                queueSize = 0;
+                //only reset set last display quat and queue on orientation change
+                if (movement[1])
+                {
+                    lastDisplayQuat = displayQuat;
+                    //added for queue:
+                    quatQueue.Clear();
+                    queueSize = 0;
+                }
+
 #if (FRAMEMON)
                 times[1] = stopWatch.ElapsedMilliseconds;
 #endif
